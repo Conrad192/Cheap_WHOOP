@@ -40,3 +40,19 @@ df = pd.DataFrame({
 df.to_csv("data/raw/xiaomi_today.csv", index=False)
 
 print("✅ Mock Xiaomi data saved to data/raw/xiaomi_today.csv (with sleep stages)")
+
+def generate_xiaomi_data():
+    os.makedirs("data/raw", exist_ok=True)
+    start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    times = [start + timedelta(minutes=i) for i in range(1440)]
+    bpm = np.random.normal(70, 10, 1440).astype(int)
+    rr = 60000 // bpm + np.random.normal(0, 20, 1440).astype(int)
+    spo2 = np.random.randint(95, 100, 1440)
+    stages = np.zeros(1440, dtype=int)
+    night_start = 1320
+    stages[night_start:] = np.random.choice([1,2,3], len(stages[night_start:]), p=[0.6,0.2,0.2])
+    df = pd.DataFrame({"timestamp": times, "bpm": bpm, "rr_ms": rr, "spo2": spo2, "sleep_stage": stages})
+    df.to_csv("data/raw/xiaomi_today.csv", index=False)
+
+if __name__ == "__main__":
+    generate_xiaomi_data()
