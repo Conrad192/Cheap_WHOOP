@@ -8,8 +8,6 @@ import pandas as pd
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
 from merge import merge_data
-from calibration import calibrate_wrist_to_chest, get_calibration_status
-import json
 
 # Cache functions to speed up app
 @st.cache_data(ttl=60)
@@ -35,8 +33,8 @@ st.set_page_config(page_title="Cheap WHOOP", layout="centered")
 st.title("💪 Cheap WHOOP 1")
 st.caption("No $30/month. Just $75 hardware + your code.")
 
-# Tabs with icons - NOW WITH CALIBRATION
-tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚙️ Calibrate"])
+# Tabs with icons
+tab1, tab2, tab3 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History"])
 
 
 # ----------------------------
@@ -46,7 +44,7 @@ with tab1:
     # Get metrics first
     m = get_metrics()
     
-    # NEW: Status banner
+    # Status banner
     if m["recovery"] > 66:
         st.success("🟢 **Ready to Train** - Your body is recovered!")
     elif m["recovery"] > 33:
@@ -65,14 +63,16 @@ with tab1:
             daily_df = pd.read_csv("data/merged/daily_merged.csv")
             m = get_metrics()
 
-            # Build new history row
+            # Build new history row with NEW metrics
             history_path = "data/history.csv"
             history_df = pd.DataFrame({
                 "date": [datetime.now().strftime("%Y-%m-%d")],
                 "recovery": [m["recovery"]],
                 "strain": [m["strain"]],
                 "rhr": [m["rhr"]],
-                "hrv": [m["hrv"]]
+                "hrv": [m["hrv"]],
+                "stress": [m["stress"]],
+                "readiness": [m["readiness"]]
             })
 
             # Append to history cleanly
@@ -116,7 +116,21 @@ with tab1:
         ))
         st.plotly_chart(fig, use_container_width=True)
         with st.expander("What is Strain?"):
-            st.write("Strain (0–21): Measures total cardiovascular load for the day.")
+            st.write("""
+            **Strain (0–21): Measures total cardiovascular load for the day.**
+            
+            **What it means:**
+            - How much physical WORK you did today
+            - Counts exercise, walking, stairs, any movement
+            - NOT the same as stress (that's mental/nervous tension)
+            
+            **Scale:**
+            - 0-7: Light day (mostly resting)
+            - 7-14: Moderate activity
+            - 14-21: Hard training day
+            
+            **Example:** A 5-mile run = strain of 15-18
+            """)
 
     # Recovery gauge
     with col2:
@@ -130,7 +144,23 @@ with tab1:
         ))
         st.plotly_chart(fig, use_container_width=True)
         with st.expander("What is Recovery?"):
-            st.write("Recovery is based on HRV and Resting HR. Green = ready to train.")
+            st.write("""
+            **Recovery: Based on HRV and Resting HR.**
+            
+            **What it means:**
+            - How well you recovered OVERNIGHT
+            - Purely physiological (HRV + resting heart rate)
+            - Measured when you wake up
+            
+            **Scale:**
+            - 🟢 67-100: Great recovery, ready to train
+            - 🟡 34-66: Moderate, go easy
+            - 🔴 0-33: Poor recovery, rest day
+            
+            **Not the same as Training Readiness!**
+            Recovery = "Did I sleep well?"
+            Readiness = "Should I work out today?"
+            """)
 
     col_hrv, col_rhr = st.columns(2)
     with col_hrv:
@@ -139,7 +169,131 @@ with tab1:
     with col_rhr:
         st.metric("Resting HR", f"{m['rhr']} BPM", help="Lower RHR = better fitness.")
     
-    # NEW: Compare to baseline
+    # NEW METRICS SECTION
+    st.divider()
+    st.subheader("🧠 Advanced Metrics")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Stress score with color coding
+        stress_color = "🟢" if m["stress"] < 4 else "🟡" if m["stress"] < 7 else "🔴"
+        st.metric(
+            "Stress Level", 
+            f"{stress_color} {m['stress']}/10",
+            help="Based on HR and HRV patterns. Lower = better."
+        )
+        with st.expander("❓ What is Stress Level?"):
+            st.write("""
+            **Stress measures how tense your nervous system is RIGHT NOW.**
+            
+            **Not the same as Strain!**
+            - You can be stressed sitting at your desk (anxiety, illness)
+            - You can have low stress after a great workout (body handled it well)
+            
+            **Scale:**
+            - 🟢 0-3: Relaxed, calm, recovered
+            - 🟡 4-6: Normal daily stress
+            - 🔴 7-10: High stress (overtraining, anxiety, or sick)
+            
+            **Example:** Stressful work meeting = high stress but low strain
+            """)
+    
+    with col2:
+        # Training readiness
+        readiness_emoji = "💪" if m["readiness"] > 70 else "😐" if m["readiness"] > 40 else "😴"
+        st.metric(
+            "Training Readiness",
+            f"{readiness_emoji} {m['readiness']}%",
+            help="Combined score: Should you train hard today?"
+        )
+        with st.expander("❓ What is Training Readiness?"):
+            st.write("""
+            **Should you work out hard TODAY? This is your answer.**
+            
+            **Not the same as Recovery!**
+            - Recovery = Did you sleep well?
+            - Readiness = Considering EVERYTHING, should you train?
+            
+            Combines:
+            - 40% Recovery (most important)
+            - 25% HRV 
+            - 20% Sleep quality
+            - 15% Resting heart rate
+            
+            **Scale:**
+            - 💪 70-100: GO HARD! Body is ready
+            - 😐 40-69: Light/moderate workout only
+            - 😴 0-39: REST DAY - your body needs it
+            
+            **Example:** Recovery is 80% but you only slept 4 hours → Readiness drops to 60%
+            """)
+    
+    with col3:
+        # Respiratory rate
+        if m["respiratory_rate"]:
+            resp_status = "Normal" if 12 <= m["respiratory_rate"] <= 20 else "Check"
+            st.metric(
+                "Breathing Rate",
+                f"{m['respiratory_rate']} /min",
+                delta=resp_status,
+                help="Estimated from HRV patterns. Normal: 12-20/min"
+            )
+            with st.expander("❓ What is Breathing Rate?"):
+                st.write("""
+                **How many breaths you take per minute.**
+                
+                Estimated from your heart rate patterns (breathing affects HRV).
+                
+                **Normal range:** 12-20 breaths/min at rest
+                
+                **What it means:**
+                - 8-12: Very relaxed, deep breathing (meditation, sleep)
+                - 12-20: Normal resting rate ✅
+                - 20-30: Elevated (exercise, stress, anxiety)
+                - 30+: Very high (intense exercise or potential health issue)
+                
+                **Why it matters:** 
+                - Consistently high rate at rest → check for illness or overtraining
+                - Very low rate → excellent relaxation and recovery
+                """)
+        else:
+            st.metric("Breathing Rate", "N/A", help="Need more data")
+    
+    # Main comparison expander
+    with st.expander("🤔 Strain vs Stress? Recovery vs Readiness?"):
+        st.write("""
+        ### Quick Comparison Guide
+        
+        | Metric | Measures | Time | Question |
+        |--------|----------|------|----------|
+        | **Strain** | Physical work | Today | "How hard did I work?" |
+        | **Stress** | Nervous tension | Now | "How tense is my body?" |
+        | **Recovery** | Sleep quality | This AM | "Did I recover overnight?" |
+        | **Readiness** | Training decision | Today | "Should I work out?" |
+        
+        ---
+        
+        **Example Day:**
+        
+        Yesterday you did a hard workout (Strain: 16) but felt great (Stress: 3).
+        
+        You slept 8 hours (Recovery: 88%) and feel strong this morning (Readiness: 85%).
+        
+        **Decision: Train hard today!** 💪
+        
+        ---
+        
+        **Another Example:**
+        
+        You didn't work out (Strain: 4) but had a stressful day at work (Stress: 7).
+        
+        You slept poorly, 5 hours (Recovery: 45%) and feel tired (Readiness: 38%).
+        
+        **Decision: REST today!** 😴
+        """)
+    
+    # Compare to baseline
     st.divider()
     st.subheader("📊 Today vs. Your Baseline")
     
@@ -214,10 +368,10 @@ with tab3:
             cutoff = datetime.now().date() - pd.Timedelta(days=days)
             daily = daily[daily["date"] >= cutoff]
 
-        # Metric selection
+        # Metric selection - NOW WITH NEW METRICS
         metric = st.selectbox(
             "Select Metric to View",
-            ["recovery", "strain", "rhr", "hrv"],
+            ["recovery", "strain", "rhr", "hrv", "stress", "readiness"],
             index=0
         )
 
@@ -244,102 +398,3 @@ with tab3:
 
     else:
         st.write("No history yet. Refresh in the Heart tab to start tracking.")
-
-
-# ----------------------------
-# TAB 4 – CALIBRATION MODE
-# ----------------------------
-with tab4:
-    st.subheader("🎯 Calibration Mode")
-    st.write("Make your wrist data as accurate as your chest strap!")
-    
-    # Instructions
-    st.info("""
-    **How to calibrate:**
-    1. Wear BOTH your Xiaomi band AND Coospo chest strap
-    2. Do a 20+ minute workout (run, bike, etc.)
-    3. Click 'Run Calibration' below
-    4. Your wrist data will be corrected to match chest strap accuracy
-    """)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 📋 Steps")
-        st.markdown("✅ Step 1: Wear both devices")
-        st.markdown("✅ Step 2: Exercise for 20+ min")
-        st.markdown("✅ Step 3: Run calibration")
-        st.markdown("✅ Step 4: Profit!")
-    
-    with col2:
-        # Show current calibration status
-        cal_status = get_calibration_status()
-        
-        if cal_status:
-            st.markdown("### ✅ Current Calibration")
-            cal_date = cal_status["date"][:10]
-            st.success(f"Last calibrated: {cal_date}")
-            st.metric("Data Points Used", cal_status["samples"])
-            st.metric("Avg Error Before", f"{cal_status['avg_error_before']:.1f} BPM")
-            
-            # Show correction factors
-            with st.expander("📊 Correction Details"):
-                st.write(f"**BPM:** {cal_status['bpm_slope']:.3f}x + {cal_status['bpm_intercept']:.1f}")
-                st.write(f"**RR:** {cal_status['rr_slope']:.3f}x + {cal_status['rr_intercept']:.1f}")
-        else:
-            st.markdown("### ⚠️ Not Calibrated")
-            st.warning("No calibration found. Your data may be less accurate.")
-    
-    st.divider()
-    
-    # Calibration buttons
-    col_btn1, col_btn2 = st.columns(2)
-    
-    with col_btn1:
-        if st.button("🔬 Run Calibration", type="primary"):
-            with st.spinner("Analyzing workout data..."):
-                result = calibrate_wrist_to_chest(
-                    "data/raw/xiaomi_today.csv",
-                    "data/raw/coospo_workout.csv"
-                )
-                
-                if "error" in result:
-                    st.error(f"❌ {result['error']}")
-                    st.info(f"Only found {result['samples']} matching data points. Need 30+")
-                else:
-                    st.success(f"✅ Calibration complete! Used {result['samples']} data points")
-                    st.balloons()
-                    
-                    # Show improvement
-                    st.metric(
-                        "Average Error Before", 
-                        f"{result['avg_error_before']:.1f} BPM",
-                        help="How far off your wrist was from chest strap"
-                    )
-                    
-                    # Clear cache to use new calibration
-                    st.cache_data.clear()
-                    st.rerun()
-    
-    with col_btn2:
-        if cal_status and st.button("🗑️ Remove Calibration"):
-            os.remove("data/calibration.json")
-            st.success("Calibration removed. Using raw data now.")
-            st.cache_data.clear()
-            st.rerun()
-    
-    # Explanation
-    with st.expander("❓ Why calibrate?"):
-        st.write("""
-        **Wrist-based heart rate monitors are less accurate than chest straps** because:
-        - Movement causes noise in optical sensors
-        - Blood flow varies at the wrist
-        - Skin tone and tattoos affect readings
-        
-        **Calibration fixes this** by:
-        - Comparing your wrist to chest strap during exercise
-        - Creating a correction formula specific to YOU
-        - Applying it to all future wrist readings
-        
-        **Result:** Wrist data becomes nearly as accurate as chest strap! 📈
-        """)
