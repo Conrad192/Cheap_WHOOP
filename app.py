@@ -8,6 +8,8 @@ import pandas as pd
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
 from merge import merge_data
+from calibration import calibrate_wrist_to_chest, get_calibration_status
+import json
 
 # Cache functions to speed up app
 @st.cache_data(ttl=60)
@@ -33,8 +35,8 @@ st.set_page_config(page_title="Cheap WHOOP", layout="centered")
 st.title("💪 Cheap WHOOP 1")
 st.caption("No $30/month. Just $75 hardware + your code.")
 
-# Tabs with icons
-tab1, tab2, tab3 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History"])
+# Tabs with icons - NOW WITH CALIBRATION
+tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚙️ Calibrate"])
 
 
 # ----------------------------
@@ -242,3 +244,102 @@ with tab3:
 
     else:
         st.write("No history yet. Refresh in the Heart tab to start tracking.")
+
+
+# ----------------------------
+# TAB 4 – CALIBRATION MODE
+# ----------------------------
+with tab4:
+    st.subheader("🎯 Calibration Mode")
+    st.write("Make your wrist data as accurate as your chest strap!")
+    
+    # Instructions
+    st.info("""
+    **How to calibrate:**
+    1. Wear BOTH your Xiaomi band AND Coospo chest strap
+    2. Do a 20+ minute workout (run, bike, etc.)
+    3. Click 'Run Calibration' below
+    4. Your wrist data will be corrected to match chest strap accuracy
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📋 Steps")
+        st.markdown("✅ Step 1: Wear both devices")
+        st.markdown("✅ Step 2: Exercise for 20+ min")
+        st.markdown("✅ Step 3: Run calibration")
+        st.markdown("✅ Step 4: Profit!")
+    
+    with col2:
+        # Show current calibration status
+        cal_status = get_calibration_status()
+        
+        if cal_status:
+            st.markdown("### ✅ Current Calibration")
+            cal_date = cal_status["date"][:10]
+            st.success(f"Last calibrated: {cal_date}")
+            st.metric("Data Points Used", cal_status["samples"])
+            st.metric("Avg Error Before", f"{cal_status['avg_error_before']:.1f} BPM")
+            
+            # Show correction factors
+            with st.expander("📊 Correction Details"):
+                st.write(f"**BPM:** {cal_status['bpm_slope']:.3f}x + {cal_status['bpm_intercept']:.1f}")
+                st.write(f"**RR:** {cal_status['rr_slope']:.3f}x + {cal_status['rr_intercept']:.1f}")
+        else:
+            st.markdown("### ⚠️ Not Calibrated")
+            st.warning("No calibration found. Your data may be less accurate.")
+    
+    st.divider()
+    
+    # Calibration buttons
+    col_btn1, col_btn2 = st.columns(2)
+    
+    with col_btn1:
+        if st.button("🔬 Run Calibration", type="primary"):
+            with st.spinner("Analyzing workout data..."):
+                result = calibrate_wrist_to_chest(
+                    "data/raw/xiaomi_today.csv",
+                    "data/raw/coospo_workout.csv"
+                )
+                
+                if "error" in result:
+                    st.error(f"❌ {result['error']}")
+                    st.info(f"Only found {result['samples']} matching data points. Need 30+")
+                else:
+                    st.success(f"✅ Calibration complete! Used {result['samples']} data points")
+                    st.balloons()
+                    
+                    # Show improvement
+                    st.metric(
+                        "Average Error Before", 
+                        f"{result['avg_error_before']:.1f} BPM",
+                        help="How far off your wrist was from chest strap"
+                    )
+                    
+                    # Clear cache to use new calibration
+                    st.cache_data.clear()
+                    st.rerun()
+    
+    with col_btn2:
+        if cal_status and st.button("🗑️ Remove Calibration"):
+            os.remove("data/calibration.json")
+            st.success("Calibration removed. Using raw data now.")
+            st.cache_data.clear()
+            st.rerun()
+    
+    # Explanation
+    with st.expander("❓ Why calibrate?"):
+        st.write("""
+        **Wrist-based heart rate monitors are less accurate than chest straps** because:
+        - Movement causes noise in optical sensors
+        - Blood flow varies at the wrist
+        - Skin tone and tattoos affect readings
+        
+        **Calibration fixes this** by:
+        - Comparing your wrist to chest strap during exercise
+        - Creating a correction formula specific to YOU
+        - Applying it to all future wrist readings
+        
+        **Result:** Wrist data becomes nearly as accurate as chest strap! 📈
+        """)
