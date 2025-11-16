@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from metrics import get_metrics
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
@@ -323,6 +323,83 @@ with tab1:
             )
     else:
         st.info("📅 Track for 7+ days to see your baseline comparison")
+    
+    # NEW: Live Heart Rate Chart
+    st.divider()
+    st.subheader("📡 Live View - Last Hour")
+    
+    df = load_merged_data()
+    
+    if not df.empty:
+        # Get data from last hour
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        last_hour = df[df["timestamp"] > one_hour_ago]
+        
+        if not last_hour.empty:
+            # Create heart rate chart
+            fig = go.Figure()
+            
+            # Calculate 5-minute rolling average for smoother line
+            last_hour_sorted = last_hour.sort_values("timestamp")
+            last_hour_sorted["bpm_smooth"] = last_hour_sorted["bpm"].rolling(window=8, center=True).mean()
+            
+            # Show raw data as faint background (optional)
+            fig.add_trace(go.Scatter(
+                x=last_hour_sorted["timestamp"],
+                y=last_hour_sorted["bpm"],
+                mode="lines",
+                name="Raw",
+                line=dict(color="lightgray", width=1),
+                opacity=0.3,
+                showlegend=False
+            ))
+            
+            # Add smooth heart rate line
+            fig.add_trace(go.Scatter(
+                x=last_hour_sorted["timestamp"],
+                y=last_hour_sorted["bpm_smooth"],
+                mode="lines",
+                name="Heart Rate (Smoothed)",
+                line=dict(color="red", width=3),
+                fill="tozeroy",
+                fillcolor="rgba(255, 0, 0, 0.1)"
+            ))
+            
+            # Add resting HR reference line
+            fig.add_hline(
+                y=m["rhr"], 
+                line_dash="dash", 
+                line_color="green",
+                annotation_text=f"Resting HR ({m['rhr']} BPM)",
+                annotation_position="right"
+            )
+            
+            fig.update_layout(
+                height=300,
+                margin=dict(t=10, b=0, l=0, r=0),
+                xaxis_title="Time",
+                yaxis_title="BPM",
+                showlegend=False,
+                hovermode="x unified"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show current stats
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                current_hr = last_hour["bpm"].iloc[-1]
+                st.metric("Current HR", f"{current_hr} BPM")
+            with col2:
+                avg_hr = last_hour["bpm"].mean()
+                st.metric("Avg (Last Hour)", f"{int(avg_hr)} BPM")
+            with col3:
+                max_hr = last_hour["bpm"].max()
+                st.metric("Max (Last Hour)", f"{max_hr} BPM")
+        else:
+            st.info("No data in the last hour. Click refresh to generate new data!")
+    else:
+        st.info("No data available. Click refresh to start tracking!")
 
 # ----------------------------
 # TAB 2 – SLEEP DATA
