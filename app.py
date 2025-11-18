@@ -28,13 +28,106 @@ def load_history():
         return df
     return pd.DataFrame()
 
+def cm_to_inches(cm):
+    """Convert centimeters to inches"""
+    return cm / 2.54
+
+def inches_to_cm(inches):
+    """Convert inches to centimeters"""
+    return inches * 2.54
+
+def kg_to_lbs(kg):
+    """Convert kilograms to pounds"""
+    return kg * 2.20462
+
+def lbs_to_kg(lbs):
+    """Convert pounds to kilograms"""
+    return lbs / 2.20462
+
+def load_user_profile():
+    """Load user profile data (age, weight, height, etc.)"""
+    profile_path = "data/user_profile.json"
+    if os.path.exists(profile_path):
+        import json
+        with open(profile_path) as f:
+            return json.load(f)
+    return None
+
+def save_user_profile(profile):
+    """Save user profile data"""
+    import json
+    os.makedirs("data", exist_ok=True)
+    with open("data/user_profile.json", "w") as f:
+        json.dump(profile, f, indent=2)
+
+def calculate_bmr(weight_kg, height_cm, age, sex):
+    """
+    Calculate Basal Metabolic Rate using Mifflin-St Jeor Equation (most accurate).
+    Returns calories per day at complete rest.
+    """
+    if sex.lower() == "male":
+        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
+    else:  # female
+        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161
+    return bmr
+
+def calculate_tdee(bmr, activity_minutes_per_week=None, avg_steps_per_day=None):
+    """
+    Calculate Total Daily Energy Expenditure.
+    Uses either activity minutes OR step count (prefers steps if both provided).
+    """
+    if avg_steps_per_day:
+        # Steps-based calculation (more accurate)
+        if avg_steps_per_day < 3000:
+            activity_factor = 1.2  # Sedentary
+        elif avg_steps_per_day < 5000:
+            activity_factor = 1.375  # Lightly active
+        elif avg_steps_per_day < 7500:
+            activity_factor = 1.55  # Moderately active
+        elif avg_steps_per_day < 10000:
+            activity_factor = 1.725  # Very active
+        else:
+            activity_factor = 1.9  # Extremely active
+    elif activity_minutes_per_week:
+        # Activity minutes-based calculation
+        if activity_minutes_per_week < 30:
+            activity_factor = 1.2  # Sedentary
+        elif activity_minutes_per_week < 150:
+            activity_factor = 1.375  # Lightly active
+        elif activity_minutes_per_week < 300:
+            activity_factor = 1.55  # Moderately active
+        elif activity_minutes_per_week < 420:
+            activity_factor = 1.725  # Very active
+        else:
+            activity_factor = 1.9  # Extremely active
+    else:
+        activity_factor = 1.2  # Default to sedentary
+    
+    return bmr * activity_factor
+
+def calculate_bmi(weight_kg, height_cm):
+    """Calculate Body Mass Index"""
+    height_m = height_cm / 100
+    return weight_kg / (height_m ** 2)
+
+def get_bmi_category(bmi):
+    """Return BMI category and color"""
+    if bmi < 18.5:
+        return "Underweight", "blue"
+    elif bmi < 25:
+        return "Normal weight", "green"
+    elif bmi < 30:
+        return "Overweight", "orange"
+    else:
+        return "Obese", "red"
+
 # Page setup
 st.set_page_config(page_title="Cheap WHOOP", layout="centered")
 st.title("💪 Cheap WHOOP 1")
 st.caption("No $30/month. Just $75 hardware + your code.")
 
 # Tabs with icons
-tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "BMI"])
+tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚖️ BMI & Metabolism"])
 
 
 # ----------------------------
@@ -63,6 +156,10 @@ with tab1:
             daily_df = pd.read_csv("data/merged/daily_merged.csv")
             m = get_metrics()
 
+            # Load user profile to get current weight
+            profile = load_user_profile()
+            current_weight = profile["weight_kg"] if profile else None
+
             # Build new history row with NEW metrics
             history_path = "data/history.csv"
             history_df = pd.DataFrame({
@@ -72,7 +169,8 @@ with tab1:
                 "rhr": [m["rhr"]],
                 "hrv": [m["hrv"]],
                 "stress": [m["stress"]],
-                "readiness": [m["readiness"]]
+                "readiness": [m["readiness"]],
+                "weight_kg": [current_weight]
             })
 
             # Append to history cleanly
@@ -445,10 +543,10 @@ with tab3:
             cutoff = datetime.now().date() - pd.Timedelta(days=days)
             daily = daily[daily["date"] >= cutoff]
 
-        # Metric selection - NOW WITH NEW METRICS
+        # Metric selection - NOW WITH NEW METRICS + WEIGHT
         metric = st.selectbox(
             "Select Metric to View",
-            ["recovery", "strain", "rhr", "hrv", "stress", "readiness"],
+            ["recovery", "strain", "rhr", "hrv", "stress", "readiness", "weight_kg"],
             index=0
         )
 
@@ -457,337 +555,446 @@ with tab3:
 
         # Plot
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=daily["date_str"],
-            y=daily[metric],
-            mode="lines+markers",
-            name=metric.capitalize()
-        ))
+        
+        # Special handling for weight (show in kg and include conversion info)
+        if metric == "weight_kg":
+            # Check if weight_kg column exists (for backward compatibility)
+            if "weight_kg" not in daily.columns:
+                st.warning("⚠️ Weight tracking not available in your history yet.")
+                st.info("To start tracking weight:\n1. Go to the **BMI & Metabolism** tab\n2. Enter your weight and save\n3. Click **🔄 Refresh Data** in the Heart Data tab\n4. Your weight will be logged to history!")
+            else:
+                # Filter out null weights
+                daily_with_weight = daily[daily["weight_kg"].notna()]
+                
+                if not daily_with_weight.empty:
+                    fig.add_trace(go.Scatter(
+                        x=daily_with_weight["date_str"],
+                        y=daily_with_weight[metric],
+                        mode="lines+markers",
+                        name="Weight (kg)",
+                        line=dict(width=3),
+                        marker=dict(size=8)
+                    ))
+                    
+                    fig.update_layout(
+                        title="Weight Over Time",
+                        xaxis_title="Date",
+                        yaxis_title="Weight (kg)",
+                        xaxis=dict(type="category")
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show weight change stats in BOTH units
+                    first_weight = daily_with_weight["weight_kg"].iloc[0]
+                    last_weight = daily_with_weight["weight_kg"].iloc[-1]
+                    weight_change = last_weight - first_weight
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric(
+                            "Starting Weight", 
+                            f"{first_weight:.1f} kg",
+                            help=f"{kg_to_lbs(first_weight):.1f} lbs"
+                        )
+                        st.caption(f"({kg_to_lbs(first_weight):.1f} lbs)")
+                    with col2:
+                        st.metric(
+                            "Current Weight", 
+                            f"{last_weight:.1f} kg",
+                            help=f"{kg_to_lbs(last_weight):.1f} lbs"
+                        )
+                        st.caption(f"({kg_to_lbs(last_weight):.1f} lbs)")
+                    with col3:
+                        delta_color = "inverse" if weight_change > 0 else "normal"
+                        st.metric(
+                            "Total Change", 
+                            f"{weight_change:+.1f} kg",
+                            delta_color=delta_color
+                        )
+                        st.caption(f"({kg_to_lbs(weight_change):+.1f} lbs)")
+                else:
+                    st.info("No weight data recorded yet. Update your weight in the BMI & Metabolism tab and refresh data to start tracking.")
+        else:
+            fig.add_trace(go.Scatter(
+                x=daily["date_str"],
+                y=daily[metric],
+                mode="lines+markers",
+                name=metric.capitalize()
+            ))
+            
+            # Create proper axis labels based on metric
+            y_label_map = {
+                "recovery": "Recovery (%)",
+                "strain": "Strain (0-21)",
+                "rhr": "Resting Heart Rate (BPM)",
+                "hrv": "HRV (ms)",
+                "stress": "Stress Level (0-10)",
+                "readiness": "Training Readiness (%)"
+            }
+            
+            y_label = y_label_map.get(metric, metric.capitalize())
 
-        fig.update_layout(
-            title=f"{metric.capitalize()} Over Time",
-            xaxis_title="Date",
-            yaxis_title=metric.capitalize(),
-            xaxis=dict(type="category")
-        )
+            fig.update_layout(
+                title=f"{metric.capitalize()} Over Time",
+                xaxis_title="Date",
+                yaxis_title=y_label,
+                xaxis=dict(type="category")
+            )
 
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.write("No history yet. Refresh in the Heart tab to start tracking.")
 
 
 # ----------------------------
-# TAB 4 – BODY COMPOSITION
+# TAB 4 – BMI & METABOLISM
 # ----------------------------
 with tab4:
-    import os
+    st.subheader("⚖️ Body Metrics & Metabolism Calculator")
     
-    # File to store body composition data
-    BODY_DATA_FILE = "data/body_composition.csv"
-
-    def load_body_data():
-        """Load body composition history"""
-        if os.path.exists(BODY_DATA_FILE):
-            df = pd.read_csv(BODY_DATA_FILE)
-            df["date"] = pd.to_datetime(df["date"]).dt.date
-            return df
-        return pd.DataFrame(columns=["date", "weight_lbs", "bodyfat_pct", "bmi"])
-
-    def save_body_data(df):
-        """Save body composition data"""
-        os.makedirs("data", exist_ok=True)
-        df.to_csv(BODY_DATA_FILE, index=False)
-
-    def calculate_bmi(weight_lbs, height_inches):
-        """Calculate BMI from weight (lbs) and height (inches)"""
-        return (weight_lbs / (height_inches ** 2)) * 703
-
-    def get_bmi_category(bmi):
-        """Get BMI category and color"""
-        if bmi < 18.5:
-            return "Underweight", "blue"
-        elif bmi < 25:
-            return "Normal", "green"
-        elif bmi < 30:
-            return "Overweight", "orange"
-        else:
-            return "Obese", "red"
-
-    # Load existing data
-    body_df = load_body_data()
-
-    # Create sub-tabs
-    subtab1, subtab2 = st.tabs(["📝 Log Entry", "📈 History & Trends"])
-
-    # SUB-TAB 1: Log new entry
-    with subtab1:
-        st.subheader("Log Today's Measurements")
+    # Load existing profile if available
+    profile = load_user_profile()
+    
+    # Unit preference toggles
+    col_unit1, col_unit2 = st.columns(2)
+    with col_unit1:
+        height_unit = st.radio("Height Unit", ["Centimeters (cm)", "Inches (in)"], horizontal=True)
+    with col_unit2:
+        weight_unit = st.radio("Weight Unit", ["Kilograms (kg)", "Pounds (lbs)"], horizontal=True)
+    
+    use_cm = "Centimeters" in height_unit
+    use_kg = "Kilograms" in weight_unit
+    
+    with st.form("user_profile_form"):
+        st.write("**Enter your information:**")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Height (only need to enter once, but allow updates)
-            if 'height' not in st.session_state:
-                st.session_state.height = 70  # Default 5'10"
+            age = st.number_input(
+                "Age (years)", 
+                min_value=10, 
+                max_value=120, 
+                value=profile["age"] if profile else 30,
+                step=1
+            )
             
-            height_ft = st.number_input("Height (feet)", min_value=4, max_value=7, value=5, key="height_ft")
-            height_in = st.number_input("Height (inches)", min_value=0, max_value=11, value=10, key="height_in")
-            total_height = (height_ft * 12) + height_in
-            st.session_state.height = total_height
+            # Weight input with unit conversion
+            if use_kg:
+                weight_input = st.number_input(
+                    "Weight (kg)", 
+                    min_value=20.0, 
+                    max_value=300.0, 
+                    value=profile["weight_kg"] if profile else 70.0,
+                    step=0.1,
+                    help="1 kg = 2.2 lbs"
+                )
+                weight_kg = weight_input
+            else:
+                default_lbs = kg_to_lbs(profile["weight_kg"]) if profile else 154.0
+                weight_input = st.number_input(
+                    "Weight (lbs)", 
+                    min_value=44.0, 
+                    max_value=660.0, 
+                    value=default_lbs,
+                    step=0.1,
+                    help="1 lb = 0.45 kg"
+                )
+                weight_kg = lbs_to_kg(weight_input)
             
-            st.caption(f"Total: {total_height} inches ({height_ft}'{height_in}\")")
+            # Height input with unit conversion
+            if use_cm:
+                height_input = st.number_input(
+                    "Height (cm)", 
+                    min_value=100.0, 
+                    max_value=250.0, 
+                    value=profile["height_cm"] if profile else 170.0,
+                    step=0.1,
+                    help="1 inch = 2.54 cm"
+                )
+                height_cm = height_input
+            else:
+                default_inches = cm_to_inches(profile["height_cm"]) if profile else 67.0
+                height_input = st.number_input(
+                    "Height (inches)", 
+                    min_value=39.0, 
+                    max_value=98.0, 
+                    value=default_inches,
+                    step=0.1,
+                    help="1 inch = 2.54 cm"
+                )
+                height_cm = inches_to_cm(height_input)
         
         with col2:
-            # Weight entry
-            weight = st.number_input(
-                "Body Weight (lbs)", 
-                min_value=50.0, 
-                max_value=500.0, 
-                value=170.0,
-                step=0.1,
-                key="weight_input"
+            sex = st.selectbox(
+                "Sex",
+                ["Male", "Female"],
+                index=0 if (profile and profile["sex"] == "Male") else 0
             )
+            
+            st.write("**Activity Level** (choose ONE):")
+            
+            activity_method = st.radio(
+                "How would you like to measure activity?",
+                ["Average Daily Steps", "Weekly Exercise Minutes"],
+                index=0 if (profile and profile.get("avg_steps_per_day")) else 0
+            )
+            
+            if activity_method == "Average Daily Steps":
+                avg_steps = st.number_input(
+                    "Average steps per day",
+                    min_value=0,
+                    max_value=50000,
+                    value=profile.get("avg_steps_per_day", 5000) if profile else 5000,
+                    step=500,
+                    help="Check your phone's step counter for your average"
+                )
+                activity_minutes = None
+            else:
+                activity_minutes = st.number_input(
+                    "Exercise minutes per week",
+                    min_value=0,
+                    max_value=2000,
+                    value=profile.get("activity_minutes_per_week", 150) if profile else 150,
+                    step=10,
+                    help="Total moderate-to-vigorous physical activity per week"
+                )
+                avg_steps = None
         
+        submitted = st.form_submit_button("💾 Calculate & Save")
+    
+    if submitted:
+        # Save profile (always store in metric)
+        new_profile = {
+            "age": age,
+            "weight_kg": weight_kg,
+            "height_cm": height_cm,
+            "sex": sex,
+            "avg_steps_per_day": avg_steps,
+            "activity_minutes_per_week": activity_minutes,
+            "last_updated": datetime.now().isoformat()
+        }
+        save_user_profile(new_profile)
+        profile = new_profile
+        
+        # Auto-update history with new weight
+        history_path = "data/history.csv"
+        m = get_metrics()
+        
+        # Check if there's already an entry for today
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        
+        if os.path.exists(history_path):
+            existing_history = pd.read_csv(history_path)
+            existing_history["date"] = pd.to_datetime(existing_history["date"]).dt.date
+            
+            # Check if today's entry exists
+            today_date = datetime.now().date()
+            if today_date in existing_history["date"].values:
+                # Update existing row with new weight
+                existing_history.loc[existing_history["date"] == today_date, "weight_kg"] = weight_kg
+                existing_history.to_csv(history_path, index=False)
+                st.success("✅ Profile saved and today's weight updated in history!")
+            else:
+                # Create new entry for today
+                new_entry = pd.DataFrame({
+                    "date": [today_str],
+                    "recovery": [m.get("recovery", 0)],
+                    "strain": [m.get("strain", 0)],
+                    "rhr": [m.get("rhr", 0)],
+                    "hrv": [m.get("hrv", 0)],
+                    "stress": [m.get("stress", 0)],
+                    "readiness": [m.get("readiness", 0)],
+                    "weight_kg": [weight_kg]
+                })
+                combined = pd.concat([existing_history, new_entry])
+                combined.to_csv(history_path, index=False)
+                st.success("✅ Profile saved and logged to history!")
+        else:
+            # Create new history file
+            new_entry = pd.DataFrame({
+                "date": [today_str],
+                "recovery": [m.get("recovery", 0)],
+                "strain": [m.get("strain", 0)],
+                "rhr": [m.get("rhr", 0)],
+                "hrv": [m.get("hrv", 0)],
+                "stress": [m.get("stress", 0)],
+                "readiness": [m.get("readiness", 0)],
+                "weight_kg": [weight_kg]
+            })
+            new_entry.to_csv(history_path, index=False)
+            st.success("✅ Profile saved and history tracking started!")
+        
+        # Clear cache and rerun to show updated data
+        st.cache_data.clear()
+        st.rerun()
+    
+    # Display results if profile exists
+    if profile:
         st.divider()
         
-        # Body fat percentage selector with visual guide
-        st.subheader("Body Fat Percentage Estimate")
-        st.caption("Select the image that most closely matches your current physique")
+        # Calculate metrics
+        bmi = calculate_bmi(profile["weight_kg"], profile["height_cm"])
+        bmi_category, bmi_color = get_bmi_category(bmi)
+        bmr = calculate_bmr(profile["weight_kg"], profile["height_cm"], profile["age"], profile["sex"])
+        tdee = calculate_tdee(bmr, profile.get("activity_minutes_per_week"), profile.get("avg_steps_per_day"))
         
-        # Create three columns for body fat examples
+        # Display weight and height in both units for reference
+        weight_display_kg = profile["weight_kg"]
+        weight_display_lbs = kg_to_lbs(profile["weight_kg"])
+        height_display_cm = profile["height_cm"]
+        height_display_inches = cm_to_inches(profile["height_cm"])
+        
+        # Display BMI
+        st.subheader("📊 Your Results")
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("### 🟢 15%")
-            st.markdown("""
-            **Lean/Athletic**
-            - Visible abs
-            - Veins visible
-            - Muscle definition clear
-            """)
-            btn1 = st.button("Select 15%", use_container_width=True, key="bf15")
+            st.metric("BMI", f"{bmi:.1f}", delta=bmi_category)
+            
+            # BMI gauge
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=bmi,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "<b>Body Mass Index</b>"},
+                gauge={
+                    'axis': {'range': [15, 40]},
+                    'bar': {'color': bmi_color},
+                    'steps': [
+                        {'range': [15, 18.5], 'color': "lightblue"},
+                        {'range': [18.5, 25], 'color': "lightgreen"},
+                        {'range': [25, 30], 'color': "lightyellow"},
+                        {'range': [30, 40], 'color': "lightcoral"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 4},
+                        'thickness': 0.75,
+                        'value': bmi
+                    }
+                }
+            ))
+            fig.update_layout(height=250, margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.markdown("### 🟡 20%")
-            st.markdown("""
-            **Fit**
-            - Some ab definition
-            - Healthy appearance
-            - Light muscle tone
-            """)
-            btn2 = st.button("Select 20%", use_container_width=True, key="bf20")
+            st.metric("BMR", f"{int(bmr)} cal/day", help="Calories burned at complete rest")
+            st.write("")
+            # Show weight and height in BOTH units
+            st.caption(f"💡 Weight: **{weight_display_kg:.1f} kg** / **{weight_display_lbs:.1f} lbs**")
+            st.caption(f"💡 Height: **{height_display_cm:.1f} cm** / **{height_display_inches:.1f} in**")
+            st.info(f"**Basal Metabolic Rate:** This is how many calories your body burns just to stay alive (breathing, heart beating, etc.)")
         
         with col3:
-            st.markdown("### 🟠 25%")
-            st.markdown("""
-            **Average**
-            - Soft appearance
-            - No visible abs
-            - Some body softness
-            """)
-            btn3 = st.button("Select 25%", use_container_width=True, key="bf25")
+            st.metric("TDEE", f"{int(tdee)} cal/day", help="Total calories burned per day")
+            st.write("")
+            st.write("")
+            st.success(f"**Total Daily Energy Expenditure:** This is your total calorie burn including activity")
         
-        # Initialize bodyfat in session state
-        if 'bodyfat' not in st.session_state:
-            st.session_state.bodyfat = 20.0
-        
-        # Update bodyfat based on button clicks
-        if btn1:
-            st.session_state.bodyfat = 15.0
-        elif btn2:
-            st.session_state.bodyfat = 20.0
-        elif btn3:
-            st.session_state.bodyfat = 25.0
-        
-        # Allow custom input too
-        bodyfat = st.slider(
-            "Or enter custom body fat %", 
-            min_value=5.0, 
-            max_value=50.0, 
-            value=st.session_state.bodyfat,
-            step=0.5,
-            help="Drag to fine-tune your body fat percentage",
-            key="bf_slider"
-        )
-        
-        st.session_state.bodyfat = bodyfat
-        
+        # Detailed breakdown
         st.divider()
+        st.subheader("🔥 Calorie Breakdown")
         
-        # Calculate BMI
-        bmi = calculate_bmi(weight, total_height)
-        bmi_cat, bmi_color = get_bmi_category(bmi)
-        
-        # Show preview
-        st.subheader("Today's Metrics Preview")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Weight", f"{weight} lbs")
+            st.write("**To maintain weight:**")
+            st.write(f"- Eat **{int(tdee)}** calories/day")
+            st.write("")
+            st.write("**To lose weight (0.5 kg/week):**")
+            st.write(f"- Eat **{int(tdee - 500)}** calories/day")
+            st.write(f"- Creates 500 cal/day deficit")
+            st.write("")
+            st.write("**To gain weight (0.5 kg/week):**")
+            st.write(f"- Eat **{int(tdee + 500)}** calories/day")
+            st.write(f"- Creates 500 cal/day surplus")
+        
         with col2:
-            st.metric("Body Fat", f"{bodyfat}%")
-        with col3:
-            st.metric("BMI", f"{bmi:.1f}")
-        with col4:
-            st.metric("Category", bmi_cat)
-        
-        # Calculate lean mass
-        lean_mass = weight * (1 - bodyfat/100)
-        fat_mass = weight - lean_mass
-        
-        st.caption(f"💪 Lean Mass: {lean_mass:.1f} lbs | 🔥 Fat Mass: {fat_mass:.1f} lbs")
-        
-        # Save button
-        if st.button("💾 Save Entry", type="primary", use_container_width=True, key="save_body"):
-            from datetime import datetime
-            new_entry = pd.DataFrame({
-                "date": [datetime.now().date()],
-                "weight_lbs": [weight],
-                "bodyfat_pct": [bodyfat],
-                "bmi": [bmi],
-                "height_inches": [total_height]
-            })
+            # Activity contribution
+            activity_calories = tdee - bmr
             
-            # Remove today's entry if it exists, then add new one
-            body_df = body_df[body_df["date"] != datetime.now().date()]
-            body_df = pd.concat([body_df, new_entry], ignore_index=True)
-            body_df = body_df.sort_values("date")
+            st.write("**Your calorie sources:**")
+            st.write(f"- **Base metabolism (BMR):** {int(bmr)} cal")
+            st.write(f"- **Activity & movement:** {int(activity_calories)} cal")
+            st.write(f"- **Total (TDEE):** {int(tdee)} cal")
             
-            save_body_data(body_df)
-            st.success("✅ Entry saved!")
-            st.rerun()
-
-    # SUB-TAB 2: History and trends
-    with subtab2:
-        st.subheader("Body Composition History")
+            # Activity level description
+            if profile.get("avg_steps_per_day"):
+                steps = profile["avg_steps_per_day"]
+                if steps < 3000:
+                    level = "Sedentary"
+                elif steps < 5000:
+                    level = "Lightly Active"
+                elif steps < 7500:
+                    level = "Moderately Active"
+                elif steps < 10000:
+                    level = "Very Active"
+                else:
+                    level = "Extremely Active"
+                st.info(f"📱 Activity Level: **{level}** ({steps:,} steps/day)")
+            elif profile.get("activity_minutes_per_week"):
+                mins = profile["activity_minutes_per_week"]
+                if mins < 30:
+                    level = "Sedentary"
+                elif mins < 150:
+                    level = "Lightly Active"
+                elif mins < 300:
+                    level = "Moderately Active"
+                elif mins < 420:
+                    level = "Very Active"
+                else:
+                    level = "Extremely Active"
+                st.info(f"⏱️ Activity Level: **{level}** ({mins} min/week)")
         
-        body_df = load_body_data()
+        # Educational section
+        with st.expander("ℹ️ Understanding These Metrics"):
+            st.write("""
+            ### BMI (Body Mass Index)
+            A simple calculation using height and weight. Not perfect (doesn't account for muscle mass), but useful as a general guideline.
+            - **Underweight:** < 18.5
+            - **Normal:** 18.5 - 24.9
+            - **Overweight:** 25 - 29.9
+            - **Obese:** ≥ 30
+            
+            ### BMR (Basal Metabolic Rate)
+            The calories you'd burn if you stayed in bed all day. Calculated using the **Mifflin-St Jeor equation** - the most accurate formula available.
+            
+            ### TDEE (Total Daily Energy Expenditure)
+            Your actual daily calorie burn including all activity. We calculate this based on your activity level:
+            - **Steps method:** More accurate if you track daily steps
+            - **Exercise minutes:** Good if you do structured workouts
+            
+            ### Weight Loss/Gain Math
+            - **1 kg of body fat = ~7,700 calories**
+            - **500 cal/day deficit = 0.5 kg weight loss per week**
+            - **500 cal/day surplus = 0.5 kg weight gain per week**
+            
+            These are estimates. Individual results vary based on metabolism, genetics, and other factors.
+            """)
         
-        if body_df.empty:
-            st.info("📝 No data yet. Log your first entry in the 'Log Entry' tab!")
-        else:
-            # Calculate derived metrics
-            body_df["lean_mass"] = body_df["weight_lbs"] * (1 - body_df["bodyfat_pct"]/100)
-            body_df["fat_mass"] = body_df["weight_lbs"] - body_df["lean_mass"]
-            
-            # Time range filter
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                time_range = st.selectbox(
-                    "Time Range",
-                    ["Last 7 Days", "Last 30 Days", "Last 90 Days", "All Time"],
-                    index=1,
-                    key="body_time_range"
-                )
-            
-            # Filter data
-            from datetime import datetime
-            filtered_df = body_df.copy()
-            if time_range != "All Time":
-                days = int(time_range.split()[1])
-                cutoff = datetime.now().date() - pd.Timedelta(days=days)
-                filtered_df = filtered_df[filtered_df["date"] >= cutoff]
-            
-            if filtered_df.empty:
-                st.warning(f"No data in the selected time range. Try 'All Time'")
+        # Integration with heart data
+        st.divider()
+        st.subheader("💡 Training Insights")
+        
+        m = get_metrics()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"**Today's Strain:** {m['strain']:.1f}/21")
+            estimated_calories = int(activity_calories * (m['strain'] / 14))  # Normalize to moderate activity
+            st.write(f"**Estimated calories burned from activity:** ~{estimated_calories} cal")
+        
+        with col2:
+            st.write(f"**Training Readiness:** {m['readiness']}%")
+            if m['readiness'] > 70:
+                st.success("✅ Your body is ready for a hard workout! You can maximize calorie burn today.")
+            elif m['readiness'] > 40:
+                st.warning("⚠️ Light workout recommended. Focus on recovery, not burning maximum calories.")
             else:
-                # Current vs. Starting stats
-                st.subheader("📊 Progress Summary")
-                
-                current = filtered_df.iloc[-1]
-                start = filtered_df.iloc[0]
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    weight_change = current["weight_lbs"] - start["weight_lbs"]
-                    st.metric(
-                        "Weight", 
-                        f"{current['weight_lbs']:.1f} lbs",
-                        f"{weight_change:+.1f} lbs"
-                    )
-                
-                with col2:
-                    bf_change = current["bodyfat_pct"] - start["bodyfat_pct"]
-                    st.metric(
-                        "Body Fat", 
-                        f"{current['bodyfat_pct']:.1f}%",
-                        f"{bf_change:+.1f}%",
-                        delta_color="inverse"
-                    )
-                
-                with col3:
-                    lean_change = current["lean_mass"] - start["lean_mass"]
-                    st.metric(
-                        "Lean Mass", 
-                        f"{current['lean_mass']:.1f} lbs",
-                        f"{lean_change:+.1f} lbs"
-                    )
-                
-                with col4:
-                    bmi_change = current["bmi"] - start["bmi"]
-                    st.metric(
-                        "BMI", 
-                        f"{current['bmi']:.1f}",
-                        f"{bmi_change:+.1f}"
-                    )
-                
-                st.divider()
-                
-                # Charts
-                st.subheader("📈 Trends")
-                
-                # Metric selector
-                metric = st.selectbox(
-                    "Select Metric",
-                    ["Weight", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"],
-                    index=0,
-                    key="body_metric_select"
-                )
-                
-                # Map selection to column
-                metric_map = {
-                    "Weight": "weight_lbs",
-                    "Body Fat %": "bodyfat_pct",
-                    "BMI": "bmi",
-                    "Lean Mass": "lean_mass",
-                    "Fat Mass": "fat_mass"
-                }
-                
-                col_name = metric_map[metric]
-                
-                # Create chart
-                fig = go.Figure()
-                
-                fig.add_trace(go.Scatter(
-                    x=filtered_df["date"].astype(str),
-                    y=filtered_df[col_name],
-                    mode="lines+markers",
-                    name=metric,
-                    line=dict(color="#FF6B6B", width=3),
-                    marker=dict(size=8)
-                ))
-                
-                fig.update_layout(
-                    title=f"{metric} Over Time",
-                    xaxis_title="Date",
-                    yaxis_title=metric,
-                    height=400,
-                    hovermode="x unified",
-                    xaxis=dict(type="category")
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Data table
-                with st.expander("📋 View All Entries"):
-                    display_df = filtered_df[["date", "weight_lbs", "bodyfat_pct", "bmi", "lean_mass", "fat_mass"]].copy()
-                    display_df.columns = ["Date", "Weight (lbs)", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"]
-                    display_df = display_df.sort_values("Date", ascending=False)
-                    
-                    # Format numbers
-                    for col in ["Weight (lbs)", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"]:
-                        display_df[col] = display_df[col].round(1)
-                    
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                st.error("🛑 Rest day. Don't worry about calories - focus on recovery!")
+    else:
+        st.info("👆 Fill out the form above to calculate your BMI and metabolic rate!")
