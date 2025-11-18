@@ -34,7 +34,7 @@ st.title("💪 Cheap WHOOP 1")
 st.caption("No $30/month. Just $75 hardware + your code.")
 
 # Tabs with icons
-tab1, tab2, tab3 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History"])
+tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "BMI"])
 
 
 # ----------------------------
@@ -475,3 +475,319 @@ with tab3:
 
     else:
         st.write("No history yet. Refresh in the Heart tab to start tracking.")
+
+
+# ----------------------------
+# TAB 4 – BODY COMPOSITION
+# ----------------------------
+with tab4:
+    import os
+    
+    # File to store body composition data
+    BODY_DATA_FILE = "data/body_composition.csv"
+
+    def load_body_data():
+        """Load body composition history"""
+        if os.path.exists(BODY_DATA_FILE):
+            df = pd.read_csv(BODY_DATA_FILE)
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+            return df
+        return pd.DataFrame(columns=["date", "weight_lbs", "bodyfat_pct", "bmi"])
+
+    def save_body_data(df):
+        """Save body composition data"""
+        os.makedirs("data", exist_ok=True)
+        df.to_csv(BODY_DATA_FILE, index=False)
+
+    def calculate_bmi(weight_lbs, height_inches):
+        """Calculate BMI from weight (lbs) and height (inches)"""
+        return (weight_lbs / (height_inches ** 2)) * 703
+
+    def get_bmi_category(bmi):
+        """Get BMI category and color"""
+        if bmi < 18.5:
+            return "Underweight", "blue"
+        elif bmi < 25:
+            return "Normal", "green"
+        elif bmi < 30:
+            return "Overweight", "orange"
+        else:
+            return "Obese", "red"
+
+    # Load existing data
+    body_df = load_body_data()
+
+    # Create sub-tabs
+    subtab1, subtab2 = st.tabs(["📝 Log Entry", "📈 History & Trends"])
+
+    # SUB-TAB 1: Log new entry
+    with subtab1:
+        st.subheader("Log Today's Measurements")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Height (only need to enter once, but allow updates)
+            if 'height' not in st.session_state:
+                st.session_state.height = 70  # Default 5'10"
+            
+            height_ft = st.number_input("Height (feet)", min_value=4, max_value=7, value=5, key="height_ft")
+            height_in = st.number_input("Height (inches)", min_value=0, max_value=11, value=10, key="height_in")
+            total_height = (height_ft * 12) + height_in
+            st.session_state.height = total_height
+            
+            st.caption(f"Total: {total_height} inches ({height_ft}'{height_in}\")")
+        
+        with col2:
+            # Weight entry
+            weight = st.number_input(
+                "Body Weight (lbs)", 
+                min_value=50.0, 
+                max_value=500.0, 
+                value=170.0,
+                step=0.1,
+                key="weight_input"
+            )
+        
+        st.divider()
+        
+        # Body fat percentage selector with visual guide
+        st.subheader("Body Fat Percentage Estimate")
+        st.caption("Select the image that most closely matches your current physique")
+        
+        # Create three columns for body fat examples
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("### 🟢 15%")
+            st.markdown("""
+            **Lean/Athletic**
+            - Visible abs
+            - Veins visible
+            - Muscle definition clear
+            """)
+            btn1 = st.button("Select 15%", use_container_width=True, key="bf15")
+        
+        with col2:
+            st.markdown("### 🟡 20%")
+            st.markdown("""
+            **Fit**
+            - Some ab definition
+            - Healthy appearance
+            - Light muscle tone
+            """)
+            btn2 = st.button("Select 20%", use_container_width=True, key="bf20")
+        
+        with col3:
+            st.markdown("### 🟠 25%")
+            st.markdown("""
+            **Average**
+            - Soft appearance
+            - No visible abs
+            - Some body softness
+            """)
+            btn3 = st.button("Select 25%", use_container_width=True, key="bf25")
+        
+        # Initialize bodyfat in session state
+        if 'bodyfat' not in st.session_state:
+            st.session_state.bodyfat = 20.0
+        
+        # Update bodyfat based on button clicks
+        if btn1:
+            st.session_state.bodyfat = 15.0
+        elif btn2:
+            st.session_state.bodyfat = 20.0
+        elif btn3:
+            st.session_state.bodyfat = 25.0
+        
+        # Allow custom input too
+        bodyfat = st.slider(
+            "Or enter custom body fat %", 
+            min_value=5.0, 
+            max_value=50.0, 
+            value=st.session_state.bodyfat,
+            step=0.5,
+            help="Drag to fine-tune your body fat percentage",
+            key="bf_slider"
+        )
+        
+        st.session_state.bodyfat = bodyfat
+        
+        st.divider()
+        
+        # Calculate BMI
+        bmi = calculate_bmi(weight, total_height)
+        bmi_cat, bmi_color = get_bmi_category(bmi)
+        
+        # Show preview
+        st.subheader("Today's Metrics Preview")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Weight", f"{weight} lbs")
+        with col2:
+            st.metric("Body Fat", f"{bodyfat}%")
+        with col3:
+            st.metric("BMI", f"{bmi:.1f}")
+        with col4:
+            st.metric("Category", bmi_cat)
+        
+        # Calculate lean mass
+        lean_mass = weight * (1 - bodyfat/100)
+        fat_mass = weight - lean_mass
+        
+        st.caption(f"💪 Lean Mass: {lean_mass:.1f} lbs | 🔥 Fat Mass: {fat_mass:.1f} lbs")
+        
+        # Save button
+        if st.button("💾 Save Entry", type="primary", use_container_width=True, key="save_body"):
+            from datetime import datetime
+            new_entry = pd.DataFrame({
+                "date": [datetime.now().date()],
+                "weight_lbs": [weight],
+                "bodyfat_pct": [bodyfat],
+                "bmi": [bmi],
+                "height_inches": [total_height]
+            })
+            
+            # Remove today's entry if it exists, then add new one
+            body_df = body_df[body_df["date"] != datetime.now().date()]
+            body_df = pd.concat([body_df, new_entry], ignore_index=True)
+            body_df = body_df.sort_values("date")
+            
+            save_body_data(body_df)
+            st.success("✅ Entry saved!")
+            st.rerun()
+
+    # SUB-TAB 2: History and trends
+    with subtab2:
+        st.subheader("Body Composition History")
+        
+        body_df = load_body_data()
+        
+        if body_df.empty:
+            st.info("📝 No data yet. Log your first entry in the 'Log Entry' tab!")
+        else:
+            # Calculate derived metrics
+            body_df["lean_mass"] = body_df["weight_lbs"] * (1 - body_df["bodyfat_pct"]/100)
+            body_df["fat_mass"] = body_df["weight_lbs"] - body_df["lean_mass"]
+            
+            # Time range filter
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                time_range = st.selectbox(
+                    "Time Range",
+                    ["Last 7 Days", "Last 30 Days", "Last 90 Days", "All Time"],
+                    index=1,
+                    key="body_time_range"
+                )
+            
+            # Filter data
+            from datetime import datetime
+            filtered_df = body_df.copy()
+            if time_range != "All Time":
+                days = int(time_range.split()[1])
+                cutoff = datetime.now().date() - pd.Timedelta(days=days)
+                filtered_df = filtered_df[filtered_df["date"] >= cutoff]
+            
+            if filtered_df.empty:
+                st.warning(f"No data in the selected time range. Try 'All Time'")
+            else:
+                # Current vs. Starting stats
+                st.subheader("📊 Progress Summary")
+                
+                current = filtered_df.iloc[-1]
+                start = filtered_df.iloc[0]
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    weight_change = current["weight_lbs"] - start["weight_lbs"]
+                    st.metric(
+                        "Weight", 
+                        f"{current['weight_lbs']:.1f} lbs",
+                        f"{weight_change:+.1f} lbs"
+                    )
+                
+                with col2:
+                    bf_change = current["bodyfat_pct"] - start["bodyfat_pct"]
+                    st.metric(
+                        "Body Fat", 
+                        f"{current['bodyfat_pct']:.1f}%",
+                        f"{bf_change:+.1f}%",
+                        delta_color="inverse"
+                    )
+                
+                with col3:
+                    lean_change = current["lean_mass"] - start["lean_mass"]
+                    st.metric(
+                        "Lean Mass", 
+                        f"{current['lean_mass']:.1f} lbs",
+                        f"{lean_change:+.1f} lbs"
+                    )
+                
+                with col4:
+                    bmi_change = current["bmi"] - start["bmi"]
+                    st.metric(
+                        "BMI", 
+                        f"{current['bmi']:.1f}",
+                        f"{bmi_change:+.1f}"
+                    )
+                
+                st.divider()
+                
+                # Charts
+                st.subheader("📈 Trends")
+                
+                # Metric selector
+                metric = st.selectbox(
+                    "Select Metric",
+                    ["Weight", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"],
+                    index=0,
+                    key="body_metric_select"
+                )
+                
+                # Map selection to column
+                metric_map = {
+                    "Weight": "weight_lbs",
+                    "Body Fat %": "bodyfat_pct",
+                    "BMI": "bmi",
+                    "Lean Mass": "lean_mass",
+                    "Fat Mass": "fat_mass"
+                }
+                
+                col_name = metric_map[metric]
+                
+                # Create chart
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=filtered_df["date"].astype(str),
+                    y=filtered_df[col_name],
+                    mode="lines+markers",
+                    name=metric,
+                    line=dict(color="#FF6B6B", width=3),
+                    marker=dict(size=8)
+                ))
+                
+                fig.update_layout(
+                    title=f"{metric} Over Time",
+                    xaxis_title="Date",
+                    yaxis_title=metric,
+                    height=400,
+                    hovermode="x unified",
+                    xaxis=dict(type="category")
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Data table
+                with st.expander("📋 View All Entries"):
+                    display_df = filtered_df[["date", "weight_lbs", "bodyfat_pct", "bmi", "lean_mass", "fat_mass"]].copy()
+                    display_df.columns = ["Date", "Weight (lbs)", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"]
+                    display_df = display_df.sort_values("Date", ascending=False)
+                    
+                    # Format numbers
+                    for col in ["Weight (lbs)", "Body Fat %", "BMI", "Lean Mass", "Fat Mass"]:
+                        display_df[col] = display_df[col].round(1)
+                    
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
