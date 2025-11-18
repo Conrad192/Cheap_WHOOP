@@ -266,6 +266,67 @@ with tab1:
 
     with col_rhr:
         st.metric("Resting HR", f"{m['rhr']} BPM", help="Lower RHR = better fitness.")
+    col_hrv, col_rhr = st.columns(2)
+    with col_hrv:
+        st.metric("HRV", f"{m['hrv']} ms", help="Higher HRV = better recovery.")
+
+    with col_rhr:
+        st.metric("Resting HR", f"{m['rhr']} BPM", help="Lower RHR = better fitness.")
+    
+    # ===== INSERT STEP TRACKING HERE =====
+    st.divider()
+    st.subheader("🚶 Daily Activity")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        step_goal = 10000
+        step_progress = (m["steps"] / step_goal) * 100
+        st.metric(
+            "Steps Today",
+            f"{m['steps']:,}",
+            help=f"Goal: {step_goal:,} steps"
+        )
+        st.progress(min(1.0, step_progress / 100))
+    
+    with col2:
+        # Calculate distance (rough estimate: 2000 steps ≈ 1 mile)
+        miles = m["steps"] / 2000
+        st.metric(
+            "Distance",
+            f"{miles:.1f} mi",
+            help="Estimated from step count"
+        )
+    
+    with col3:
+        # Calories from steps (rough: 0.04 cal per step)
+        step_calories = m["steps"] * 0.04
+        st.metric(
+            "Active Calories",
+            f"{int(step_calories)} cal",
+            help="From steps only"
+        )
+    
+    with st.expander("❓ How are steps used in Strain?"):
+        st.write("""
+        **Steps contribute to your overall Strain score:**
+        
+        - 10,000 steps ≈ 3 strain points
+        - Combined with heart rate data for total daily strain
+        - Captures low-intensity activity (walking, errands)
+        
+        **Example:**
+        - Hard workout (HR-based strain: 12) + 8,000 steps (2.4 strain) = **Total Strain: 14.4**
+        - Rest day (HR-based strain: 2) + 12,000 steps (3.6 strain) = **Total Strain: 5.6**
+        """)
+    # ===== END STEP TRACKING SECTION =====
+    
+    # NEW METRICS SECTION
+    st.divider()
+    st.subheader("🧠 Advanced Metrics")
+
+
+
     
     # NEW METRICS SECTION
     st.divider()

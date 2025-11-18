@@ -96,9 +96,19 @@ def get_metrics():
     night = df[df["timestamp"].dt.hour.between(0, 6)]
     rhr = night["bpm"].quantile(0.05) if not night.empty else 60
 
-    # Strain = how hard your day was (WHOOP style)
+    # Get total steps for the day
+    total_steps = df["steps"].max() if "steps" in df.columns else 0
+    
+    # Improved strain calculation with steps
+    # Base strain from HR
     excess = df["bpm"] - rhr
-    strain = min(21, np.sum(excess[excess > 0]) * 0.0001)  # Scale to 0–21
+    hr_strain = min(21, np.sum(excess[excess > 0]) * 0.0001)
+    
+    # Step strain (10,000 steps ≈ 3 strain points)
+    step_strain = (total_steps / 10000) * 3
+    
+    # Combined strain
+    strain = min(21, hr_strain + step_strain)
 
     # Recovery = combo of HRV + resting HR
     recovery = min(100, max(33, (hrv / 80) * 100 * (60 / rhr)))
@@ -112,7 +122,7 @@ def get_metrics():
     efficiency = (sleep_duration / 8) * 100 if sleep_duration > 0 else 0  # Assume 8h ideal
     efficiency_str = f"{int(efficiency)}%"
     
-    # NEW METRICS
+    # NEW METRICS (now rhr is defined before we use it)
     stress = calculate_stress_score(df)
     readiness = calculate_training_readiness(hrv, rhr, recovery, efficiency_str)
     respiratory_rate = estimate_respiratory_rate(df)
@@ -131,7 +141,8 @@ def get_metrics():
         # New metrics
         "stress": round(stress, 1),
         "readiness": readiness,
-        "respiratory_rate": respiratory_rate
+        "respiratory_rate": respiratory_rate,
+        "steps": int(total_steps)  # Add steps to return
     }
 
 if __name__ == "__main__":
