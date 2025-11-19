@@ -94,13 +94,166 @@ def estimate_respiratory_rate(df):
     return round(min(30, max(8, breaths_per_min)), 1)
 
 
+def calculate_sleep_performance_score(df, sleep_duration, deep, rem, light, sleep_efficiency_pct):
+    """
+    Calculate comprehensive Sleep Performance Score (0-100%) similar to WHOOP.
+
+    Components:
+    1. Sleep Sufficiency (40%): Did you get enough sleep based on your needs?
+    2. Sleep Efficiency (30%): Quality - % of time in bed actually asleep
+    3. Sleep Consistency (20%): Regularity of sleep/wake times over last 4 days
+    4. Sleep Stress (10%): Physiological stress during sleep (inverted)
+
+    Returns dict with:
+    - sleep_score: Overall performance (0-100%)
+    - sufficiency, efficiency, consistency, stress_score: Individual components
+    - sleep_debt: Accumulated deficit in minutes
+    - restorative_sleep: % of sleep in deep + REM stages
+    """
+
+    # ========================================================================
+    # 1. SLEEP SUFFICIENCY (0-100%)
+    # ========================================================================
+    # Calculate sleep need based on baseline + strain from previous day
+    # Baseline: 8 hours (can be personalized)
+    # Additional need: +15 min per 5 points of strain
+
+    baseline_need = 8.0  # hours
+
+    # Try to get previous day's strain from history
+    try:
+        history = pd.read_csv("data/history.csv")
+        if not history.empty and len(history) >= 2:
+            prev_strain = history.iloc[-2]["strain"]  # Yesterday's strain
+            additional_need = (prev_strain / 5) * 0.25  # +15min per 5 strain points
+        else:
+            additional_need = 0
+    except:
+        additional_need = 0
+
+    sleep_need = baseline_need + additional_need
+    sufficiency = min(100, (sleep_duration / sleep_need) * 100)
+
+    # Calculate sleep debt (accumulated deficit)
+    sleep_debt_hours = max(0, sleep_need - sleep_duration)
+    sleep_debt_minutes = int(sleep_debt_hours * 60)
+
+    # ========================================================================
+    # 2. SLEEP EFFICIENCY (0-100%)
+    # ========================================================================
+    # We already have this from the caller
+    efficiency = sleep_efficiency_pct
+
+    # ========================================================================
+    # 3. SLEEP CONSISTENCY (0-100%)
+    # ========================================================================
+    # Calculate regularity of sleep/wake times over last 4 days
+    # Compare bedtime and wake time variance
+
+    try:
+        # Get sleep times from last 4 days
+        history = pd.read_csv("data/history.csv")
+
+        if len(history) >= 4:
+            # We need to detect sleep windows from daily data
+            # For now, use a simplified approach based on sleep duration variance
+            recent_sleep = history.tail(4)
+
+            if "sleep_duration_hours" in recent_sleep.columns:
+                sleep_durations = recent_sleep["sleep_duration_hours"].values
+                # Calculate variance in sleep duration as proxy for consistency
+                if len(sleep_durations) > 1:
+                    std_dev = np.std(sleep_durations)
+                    # Lower variance = higher consistency
+                    # 0 hours std dev = 100%, 2 hours std dev = 0%
+                    consistency = max(0, 100 - (std_dev / 2) * 100)
+                else:
+                    consistency = 75  # Default
+            else:
+                # First time tracking - analyze current day's sleep timing
+                sleep_data = df[df["sleep_stage"] > 0]
+                if not sleep_data.empty:
+                    # Check if sleep is concentrated in expected window (10pm-6am)
+                    night_sleep = sleep_data[sleep_data["timestamp"].dt.hour.between(22, 23) |
+                                            sleep_data["timestamp"].dt.hour.between(0, 6)]
+                    consistency = min(100, (len(night_sleep) / len(sleep_data)) * 100)
+                else:
+                    consistency = 75  # Default
+        else:
+            # Not enough history - use default moderate consistency
+            consistency = 75
+    except:
+        consistency = 75  # Default if calculation fails
+
+    # ========================================================================
+    # 4. SLEEP STRESS (0-100%, inverted)
+    # ========================================================================
+    # Measure physiological stress during sleep
+    # High HR + Low HRV during sleep = high stress = lower score
+
+    sleep_periods = df[df["sleep_stage"] > 0]
+
+    if not sleep_periods.empty and len(sleep_periods) > 10:
+        # Calculate average HR and HRV during sleep
+        sleep_hr = sleep_periods["bpm"].mean()
+        sleep_rr = sleep_periods["rr_ms"].dropna()
+
+        if len(sleep_rr) > 1:
+            sleep_hrv = np.sqrt(np.mean(np.diff(sleep_rr)**2))  # RMSSD
+
+            # Lower HR and higher HRV during sleep = less stress
+            # Typical good sleep: HR 50-60, HRV 50-100ms
+            hr_stress = max(0, (sleep_hr - 50) / 30)  # 0 if HR=50, 1 if HR=80+
+            hrv_stress = max(0, (60 - sleep_hrv) / 60)  # 0 if HRV=60+, 1 if HRV=0
+
+            stress_level = (hr_stress + hrv_stress) / 2  # 0-1 scale
+            stress_score = (1 - stress_level) * 100  # Invert: lower stress = higher score
+        else:
+            stress_score = 75  # Default
+    else:
+        stress_score = 75  # Default if insufficient data
+
+    # ========================================================================
+    # 5. RESTORATIVE SLEEP (%)
+    # ========================================================================
+    # % of sleep time spent in Deep + REM stages
+    # Target: ~50% (half of sleep should be restorative)
+
+    restorative_hours = deep + rem
+    restorative_pct = (restorative_hours / sleep_duration * 100) if sleep_duration > 0 else 0
+
+    # ========================================================================
+    # 6. COMBINED SLEEP PERFORMANCE SCORE
+    # ========================================================================
+    # Weighted average of all components
+
+    sleep_score = (
+        sufficiency * 0.40 +    # 40% - Most important: did you get enough?
+        efficiency * 0.30 +     # 30% - Quality of sleep
+        consistency * 0.20 +    # 20% - Circadian rhythm alignment
+        stress_score * 0.10     # 10% - Physiological stress
+    )
+
+    return {
+        "sleep_score": int(min(100, max(0, sleep_score))),
+        "sufficiency": int(sufficiency),
+        "efficiency": int(efficiency),
+        "consistency": int(consistency),
+        "stress_score": int(stress_score),
+        "sleep_debt_minutes": sleep_debt_minutes,
+        "restorative_sleep_pct": int(restorative_pct),
+        "sleep_need_hours": round(sleep_need, 1)
+    }
+
+
 def get_metrics():
     """
     Main function: Calculate and return all fitness metrics.
-    
+
     Returns dictionary with:
     - HRV, RHR, Strain (with steps), Recovery
     - Sleep duration, stages, efficiency
+    - Sleep Performance Score (WHOOP-style)
     - Stress, Readiness, Respiratory rate
     - Steps
     """
@@ -162,16 +315,21 @@ def get_metrics():
     # Extract sleep stages from Xiaomi data
     # 0 = awake, 1 = light, 2 = deep, 3 = REM
     sleep_df = df[df["sleep_stage"] > 0]  # Only sleeping periods
-    
+
     # Calculate durations (data is per-minute, convert to hours)
     sleep_duration = len(sleep_df) / 60  # Total sleep in hours
     deep = len(sleep_df[sleep_df["sleep_stage"] == 2]) / 60  # Deep sleep hours
     rem = len(sleep_df[sleep_df["sleep_stage"] == 3]) / 60   # REM sleep hours
     light = len(sleep_df[sleep_df["sleep_stage"] == 1]) / 60  # Light sleep hours
-    
+
     # Sleep efficiency (% of 8-hour ideal)
     efficiency = (sleep_duration / 8) * 100 if sleep_duration > 0 else 0
     efficiency_str = f"{int(efficiency)}%"
+
+    # Calculate comprehensive sleep performance score (WHOOP-style)
+    sleep_perf = calculate_sleep_performance_score(
+        df, sleep_duration, deep, rem, light, efficiency
+    )
     
     # ========================================================================
     # ADVANCED METRICS
@@ -191,19 +349,35 @@ def get_metrics():
         "rhr": int(rhr),
         "strain": round(strain, 1),
         "recovery": int(recovery),
-        
+
         # Sleep metrics (formatted as strings)
         "sleep_duration": f"{int(sleep_duration)}h {int((sleep_duration % 1)*60)}m",
         "deep": f"{int(deep)}h {int((deep % 1)*60)}m",
         "rem": f"{int(rem)}h {int((rem % 1)*60)}m",
         "light": f"{int(light)}h {int((light % 1)*60)}m",
         "efficiency": efficiency_str,
-        
+
+        # Sleep Performance Score (WHOOP-style)
+        "sleep_score": sleep_perf["sleep_score"],
+        "sleep_sufficiency": sleep_perf["sufficiency"],
+        "sleep_consistency": sleep_perf["consistency"],
+        "sleep_stress_score": sleep_perf["stress_score"],
+        "sleep_debt_minutes": sleep_perf["sleep_debt_minutes"],
+        "restorative_sleep_pct": sleep_perf["restorative_sleep_pct"],
+        "sleep_need_hours": sleep_perf["sleep_need_hours"],
+
+        # Sleep metrics as numbers (for history storage)
+        "sleep_duration_hours": round(sleep_duration, 2),
+        "deep_hours": round(deep, 2),
+        "rem_hours": round(rem, 2),
+        "light_hours": round(light, 2),
+        "sleep_efficiency_pct": int(efficiency),
+
         # Advanced metrics
         "stress": round(stress, 1),
         "readiness": readiness,
         "respiratory_rate": respiratory_rate,
-        
+
         # Activity
         "steps": int(total_steps)
     }
