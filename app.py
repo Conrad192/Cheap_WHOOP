@@ -15,6 +15,14 @@ import pandas as pd
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
 from merge import merge_data
+from strain_coach import get_strain_recommendation, get_smart_strain_goal
+from workout_detector import detect_workouts, load_workouts, save_workout, calculate_hr_zones, get_zone_distribution
+from alerts import check_overtraining_risk, should_rest_today, get_recovery_forecast
+from insights import get_weekly_summary, get_monthly_insights, get_optimal_bedtime, get_day_strain_breakdown, calculate_calorie_burn
+from nutrition import get_water_goal, log_water, log_calories, get_nutrition_summary, load_nutrition_log
+from journal import add_entry, get_entries, get_all_entries, find_correlations, COMMON_TAGS
+from reports import generate_pdf_report, export_csv
+import numpy as np
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -143,7 +151,15 @@ st.title("💪 Cheap WHOOP")
 st.caption("No $30/month. Just $75 hardware + your code.")
 
 # Create tabs for different sections
-tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚖️ BMI & Metabolism"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "❤️ Heart Data",
+    "😴 Sleep",
+    "📈 History",
+    "⚖️ BMI & Metabolism",
+    "🏃 Workouts",
+    "🍎 Nutrition",
+    "📝 Journal"
+])
 
 # ============================================================================
 # TAB 1: HEART DATA & RECOVERY
@@ -282,6 +298,115 @@ with tab1:
         st.metric("HRV", f"{m['hrv']} ms", help="Higher HRV = better recovery")
     with col_rhr:
         st.metric("Resting HR", f"{m['rhr']} BPM", help="Lower RHR = better fitness")
+
+    # ========================================================================
+    # STRAIN COACH - New Feature
+    # ========================================================================
+    st.divider()
+    st.subheader("🎯 Strain Coach")
+
+    history_df = load_history()
+
+    # Set strain goal
+    col1, col2 = st.columns(2)
+    with col1:
+        if len(history_df) >= 3:
+            recent_strains = history_df.tail(7)["strain"].tolist()
+            suggested_goal = get_smart_strain_goal(m["recovery"], recent_strains)
+        else:
+            suggested_goal = 14
+
+        strain_goal = st.slider("Today's Strain Goal", 7, 21, suggested_goal,
+                                help="What strain do you want to hit today?")
+
+    with col2:
+        st.metric("Current Strain", f"{m['strain']:.1f}", f"Goal: {strain_goal}")
+
+    # Get recommendation
+    recommendation = get_strain_recommendation(m["strain"], strain_goal)
+
+    if recommendation["status"] == "goal_met":
+        st.success(recommendation["message"])
+    else:
+        st.info(recommendation["message"])
+
+        if recommendation["recommendations"]:
+            st.write("**Suggested activities to hit your goal:**")
+            for rec in recommendation["recommendations"][:3]:
+                st.write(f"• **{rec['activity']}**: {rec['duration_min']} minutes (+{rec['strain_gain']:.1f} strain)")
+
+    # ========================================================================
+    # REST DAY RECOMMENDATION - New Feature
+    # ========================================================================
+    st.divider()
+    st.subheader("🛑 Rest Day Check")
+
+    if len(history_df) >= 3:
+        yesterday_strain = history_df.iloc[-1]["strain"] if len(history_df) > 0 else 0
+        recent_recoveries = history_df.tail(3)["recovery"].tolist()
+
+        rest_check = should_rest_today(m["recovery"], yesterday_strain, recent_recoveries)
+
+        if rest_check["should_rest"]:
+            if rest_check["urgency"] == "high":
+                st.error(rest_check["message"])
+            else:
+                st.warning(rest_check["message"])
+        else:
+            st.success(rest_check["message"])
+
+        st.caption(f"_{rest_check['reason']}_")
+        st.write(f"💡 {rest_check['suggestion']}")
+    else:
+        st.info("Track for 3+ days to get rest day recommendations")
+
+    # ========================================================================
+    # RECOVERY PREDICTION - New Feature
+    # ========================================================================
+    if len(history_df) >= 7:
+        st.divider()
+        st.subheader("🔮 Recovery Forecast")
+
+        recent_strains = history_df.tail(14)["strain"].tolist()
+        recent_recoveries = history_df.tail(14)["recovery"].tolist()
+
+        predicted_recovery = get_recovery_forecast(recent_strains, recent_recoveries)
+
+        if predicted_recovery:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Today's Recovery", f"{m['recovery']}%")
+            with col2:
+                st.metric("Predicted Tomorrow", f"{predicted_recovery}%",
+                         delta=f"{predicted_recovery - m['recovery']:+.0f}%")
+
+            st.caption(f"Based on today's strain ({m['strain']:.1f}) and your recent patterns")
+
+    # ========================================================================
+    # OVERTRAINING RISK ALERT - New Feature
+    # ========================================================================
+    if len(history_df) >= 7:
+        st.divider()
+        st.subheader("⚠️ Overtraining Risk Assessment")
+
+        risk_assessment = check_overtraining_risk(history_df)
+
+        if risk_assessment["risk_level"] == "high":
+            st.error(risk_assessment["message"])
+        elif risk_assessment["risk_level"] == "moderate":
+            st.warning(risk_assessment["message"])
+        else:
+            st.success(risk_assessment["message"])
+
+        with st.expander("📊 See Details"):
+            st.write("**Recent Stats:**")
+            for key, value in risk_assessment["stats"].items():
+                st.write(f"• {key.replace('_', ' ').title()}: {value}")
+
+            if risk_assessment["recommendations"]:
+                st.write("\n**Recommendations:**")
+                for rec in risk_assessment["recommendations"]:
+                    st.write(f"• {rec}")
     
     # ========================================================================
     # STEP TRACKING SECTION
@@ -529,9 +654,129 @@ with tab2:
 
 with tab3:
     st.subheader("📈 History Trends")
-    
+
     history_df = load_history()
-    
+
+    # ========================================================================
+    # WEEKLY PERFORMANCE SUMMARY - New Feature
+    # ========================================================================
+    if len(history_df) >= 7:
+        st.subheader("📅 Weekly Performance Summary")
+
+        weekly = get_weekly_summary(history_df)
+
+        if weekly:
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric("Total Strain", f"{weekly['total_strain']:.1f}",
+                         delta=f"{weekly['wow_strain_change']:+.1f} vs last week")
+            with col2:
+                st.metric("Avg Recovery", f"{weekly['avg_recovery']:.1f}%",
+                         delta=f"{weekly['wow_recovery_change']:+.1f}% vs last week")
+            with col3:
+                st.metric("Avg HRV", f"{weekly['avg_hrv']:.1f} ms")
+            with col4:
+                st.metric("Total Steps", f"{weekly['total_steps']:,}",
+                         delta=f"{weekly['wow_steps_change']:+,} vs last week")
+
+            if weekly["best_day"] and weekly["worst_day"]:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success(f"**Best Day:** {weekly['best_day']['date']} ({weekly['best_day']['recovery']}% recovery)")
+                with col2:
+                    st.error(f"**Worst Day:** {weekly['worst_day']['date']} ({weekly['worst_day']['recovery']}% recovery)")
+
+        st.divider()
+
+    # ========================================================================
+    # MONTHLY TRENDS & INSIGHTS - New Feature
+    # ========================================================================
+    if len(history_df) >= 30:
+        st.subheader("📊 Monthly Insights (Last 30 Days)")
+
+        monthly = get_monthly_insights(history_df)
+
+        if monthly:
+            st.info(monthly["message"])
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric("Avg Recovery", f"{monthly['avg_recovery']:.1f}%",
+                         delta=f"{monthly.get('mom_recovery_change', 0):+.1f}% vs prev month")
+            with col2:
+                st.metric("Avg Strain", f"{monthly['avg_strain']:.1f}")
+            with col3:
+                st.metric("Avg HRV", f"{monthly['avg_hrv']:.1f} ms",
+                         delta=f"{monthly.get('mom_hrv_change', 0):+.1f} ms vs prev month")
+
+            st.caption(f"📅 {monthly['days_tracked']} days tracked this month")
+
+        st.divider()
+
+    # ========================================================================
+    # OPTIMAL BEDTIME RECOMMENDATION - New Feature
+    # ========================================================================
+    if len(history_df) >= 7:
+        bedtime_rec = get_optimal_bedtime(history_df)
+
+        st.info(f"💤 **Optimal Bedtime:** {bedtime_rec['bedtime']} - {bedtime_rec['reason']}")
+
+        st.divider()
+
+    # ========================================================================
+    # EXPORT & PDF REPORT - New Feature
+    # ========================================================================
+    st.subheader("📥 Export Data")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📄 Generate PDF Report"):
+            user_profile = load_user_profile()
+
+            if user_profile and len(history_df) >= 7:
+                with st.spinner("Generating PDF..."):
+                    result = generate_pdf_report(history_df, user_profile)
+
+                    if result["success"]:
+                        st.success(f"✅ PDF generated: {result['path']}")
+
+                        # Offer download
+                        with open(result["path"], "rb") as f:
+                            st.download_button(
+                                "⬇️ Download PDF",
+                                f,
+                                file_name="cheap_whoop_report.pdf",
+                                mime="application/pdf"
+                            )
+                    else:
+                        st.error(f"❌ {result['error']}")
+            else:
+                st.warning("Need user profile and 7+ days of data")
+
+    with col2:
+        if st.button("📊 Export CSV"):
+            if not history_df.empty:
+                result = export_csv(history_df)
+
+                if result["success"]:
+                    st.success(f"✅ Exported {result['rows']} rows")
+
+                    # Offer download
+                    csv_data = history_df.to_csv(index=False)
+                    st.download_button(
+                        "⬇️ Download CSV",
+                        csv_data,
+                        file_name="cheap_whoop_history.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.warning("No data to export")
+
+    st.divider()
+
     if not history_df.empty:
         # Group by date to handle any duplicates
         daily = history_df.groupby("date", as_index=False).mean()
@@ -950,3 +1195,355 @@ with tab4:
                 st.error("🛑 Rest day - focus on recovery")
     else:
         st.info("👆 Fill out the form above to calculate your metrics!")
+
+# ============================================================================
+# TAB 5: WORKOUTS - New Feature
+# ============================================================================
+
+with tab5:
+    st.subheader("🏃 Workout Auto-Detection")
+
+    # Auto-detect workouts from today's data
+    df = load_merged_data()
+    m = get_metrics()
+
+    if not df.empty:
+        if st.button("🔍 Detect Workouts from Today's Data"):
+            with st.spinner("Analyzing heart rate data..."):
+                workouts = detect_workouts(df, m["rhr"])
+
+                if workouts:
+                    st.success(f"✅ Detected {len(workouts)} workout(s)!")
+
+                    for workout in workouts:
+                        save_workout(workout)
+
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.info("No workouts detected (need HR elevated 20+ BPM above resting for 10+ min)")
+
+    st.divider()
+
+    # Display all workouts
+    st.subheader("📋 Workout History")
+
+    all_workouts = load_workouts()
+
+    if all_workouts:
+        # Show today's workouts
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_workouts = [w for w in all_workouts if w["date"] == today]
+
+        if today_workouts:
+            st.write("**Today's Workouts:**")
+            for i, w in enumerate(today_workouts, 1):
+                with st.expander(f"Workout {i}: {w['start_time']} - {w['end_time']} ({w['duration_min']} min)"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Duration", f"{w['duration_min']} min")
+                    with col2:
+                        st.metric("Avg HR", f"{w['avg_hr']} BPM")
+                    with col3:
+                        st.metric("Max HR", f"{w['max_hr']} BPM")
+
+                    st.write(f"**Strain:** {w['strain']:.1f}")
+
+                    if w.get("auto_detected"):
+                        st.caption("🤖 Auto-detected")
+
+        st.divider()
+
+        # Show all workouts in table
+        st.write("**All Workouts:**")
+        workout_df = pd.DataFrame(all_workouts)
+        workout_df = workout_df.sort_values("date", ascending=False)
+
+        st.dataframe(workout_df[["date", "start_time", "duration_min", "avg_hr", "max_hr", "strain"]],
+                    use_container_width=True)
+
+        # Summary stats
+        st.divider()
+        st.subheader("📊 Workout Statistics")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Total Workouts", len(all_workouts))
+        with col2:
+            total_duration = sum(w["duration_min"] for w in all_workouts)
+            st.metric("Total Time", f"{total_duration} min")
+        with col3:
+            total_strain = sum(w["strain"] for w in all_workouts)
+            st.metric("Total Strain", f"{total_strain:.1f}")
+    else:
+        st.info("No workouts logged yet. Use 'Detect Workouts' button above or refresh data in Heart Data tab.")
+
+    # ========================================================================
+    # HR ZONES DURING WORKOUTS - New Feature
+    # ========================================================================
+    st.divider()
+    st.subheader("💓 Heart Rate Zones")
+
+    user_profile = load_user_profile()
+    age = user_profile["age"] if user_profile else 30
+
+    max_hr = 220 - age
+
+    st.write(f"**Based on your max HR ({max_hr} BPM):**")
+
+    zones_data = [
+        ["Zone 1 (Recovery)", f"{int(max_hr * 0.5)}-{int(max_hr * 0.6)} BPM", "50-60% max HR", "Easy recovery"],
+        ["Zone 2 (Endurance)", f"{int(max_hr * 0.6)}-{int(max_hr * 0.7)} BPM", "60-70% max HR", "Build base fitness"],
+        ["Zone 3 (Tempo)", f"{int(max_hr * 0.7)}-{int(max_hr * 0.8)} BPM", "70-80% max HR", "Improve efficiency"],
+        ["Zone 4 (Threshold)", f"{int(max_hr * 0.8)}-{int(max_hr * 0.9)} BPM", "80-90% max HR", "Race pace"],
+        ["Zone 5 (Maximum)", f"{int(max_hr * 0.9)}+ BPM", "90-100% max HR", "Max effort"]
+    ]
+
+    zones_df = pd.DataFrame(zones_data, columns=["Zone", "Heart Rate", "% of Max", "Purpose"])
+    st.table(zones_df)
+
+# ============================================================================
+# TAB 6: NUTRITION - New Feature
+# ============================================================================
+
+with tab6:
+    st.subheader("🍎 Nutrition & Hydration Tracking")
+
+    m = get_metrics()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Get nutrition summary for today
+    nutrition = get_nutrition_summary(today)
+
+    # ========================================================================
+    # HYDRATION TRACKING
+    # ========================================================================
+    st.subheader("💧 Hydration")
+
+    # Calculate water goal based on strain
+    water_goal = get_water_goal(m["strain"])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Today's Water", f"{nutrition['water_oz']} oz")
+        st.caption(f"{nutrition['water_ml']} ml")
+
+    with col2:
+        st.metric("Goal", f"{water_goal['oz']} oz")
+        st.caption(f"{water_goal['ml']} ml ({water_goal['glasses']} glasses)")
+
+    # Progress bar
+    progress = min(1.0, nutrition['water_oz'] / water_goal['oz'])
+    st.progress(progress)
+
+    # Log water
+    col1, col2 = st.columns(2)
+
+    with col1:
+        water_to_add = st.number_input("Add Water (oz)", min_value=0, max_value=64, value=8, step=4)
+
+    with col2:
+        st.write("")  # Spacer
+        st.write("")  # Spacer
+        if st.button("➕ Log Water"):
+            log_water(water_to_add, today)
+            st.success(f"Added {water_to_add} oz!")
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+    # ========================================================================
+    # CALORIE TRACKING
+    # ========================================================================
+    st.subheader("🔥 Calorie Tracking")
+
+    user_profile = load_user_profile()
+
+    if user_profile:
+        # Calculate calorie burn
+        bmr = calculate_bmr(user_profile["weight_kg"], user_profile["height_cm"],
+                           user_profile["age"], user_profile["sex"])
+
+        calories = calculate_calorie_burn(bmr, m["strain"], m["steps"])
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Calories Burned", f"{calories['total']} cal")
+            st.caption("Total for today")
+
+        with col2:
+            st.metric("BMR", f"{calories['base_bmr']} cal")
+            st.caption("At rest")
+
+        with col3:
+            st.metric("Activity", f"{calories['activity']} cal")
+            st.caption("From movement")
+
+        st.divider()
+
+        # Log calories consumed
+        st.write("**Log Food:**")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            meal_name = st.text_input("Meal Description", placeholder="e.g., Breakfast, Lunch, Snack")
+
+        with col2:
+            calories_consumed = st.number_input("Calories", min_value=0, max_value=3000, value=0, step=50)
+
+        if st.button("➕ Log Meal"):
+            if calories_consumed > 0:
+                log_calories(calories_consumed, meal_name, today)
+                st.success(f"Logged {calories_consumed} cal!")
+                st.cache_data.clear()
+                st.rerun()
+
+        st.divider()
+
+        # Show today's meals
+        if nutrition['meals']:
+            st.write("**Today's Meals:**")
+            for meal in nutrition['meals']:
+                st.write(f"• **{meal['time']}** - {meal['meal']}: {meal['calories']} cal")
+
+        # Summary
+        st.divider()
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Calories In", f"{nutrition['calories']} cal")
+
+        with col2:
+            st.metric("Calories Out", f"{calories['total']} cal")
+
+        with col3:
+            net = nutrition['calories'] - calories['total']
+            st.metric("Net", f"{net:+} cal")
+
+        if net < -500:
+            st.success("✅ Good calorie deficit for weight loss")
+        elif net > 500:
+            st.info("💪 Calorie surplus for muscle gain")
+        else:
+            st.info("⚖️ Maintaining weight")
+    else:
+        st.warning("Set up your profile in BMI & Metabolism tab to track calories")
+
+# ============================================================================
+# TAB 7: JOURNAL - New Feature
+# ============================================================================
+
+with tab7:
+    st.subheader("📝 Daily Journal")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # ========================================================================
+    # ADD JOURNAL ENTRY
+    # ========================================================================
+    st.write("**How are you feeling today?**")
+
+    # Quick tag selection
+    selected_tags = st.multiselect(
+        "Quick Tags (optional)",
+        COMMON_TAGS,
+        help="Select tags to help find patterns later"
+    )
+
+    # Custom text entry
+    journal_text = st.text_area(
+        "Journal Entry",
+        placeholder="e.g., Felt tired today, didn't sleep well...",
+        height=100
+    )
+
+    if st.button("💾 Save Entry"):
+        if journal_text:
+            add_entry(journal_text, selected_tags, today)
+            st.success("✅ Journal entry saved!")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.warning("Please write something first")
+
+    st.divider()
+
+    # ========================================================================
+    # VIEW TODAY'S ENTRIES
+    # ========================================================================
+    st.subheader("📖 Today's Entries")
+
+    today_entries = get_entries(today)
+
+    if today_entries:
+        for i, entry in enumerate(today_entries, 1):
+            with st.expander(f"Entry {i} - {entry['timestamp']}"):
+                st.write(entry['text'])
+                if entry['tags']:
+                    st.caption(f"Tags: {', '.join(entry['tags'])}")
+    else:
+        st.info("No entries for today yet")
+
+    st.divider()
+
+    # ========================================================================
+    # CORRELATIONS & INSIGHTS
+    # ========================================================================
+    st.subheader("🔍 Pattern Analysis")
+
+    history_df = load_history()
+
+    if len(history_df) >= 7:
+        correlations = find_correlations(history_df)
+
+        st.info(correlations["message"])
+
+        if correlations["correlations"]:
+            st.write("**Tag Correlations with Metrics:**")
+
+            corr_data = []
+            for corr in correlations["correlations"][:10]:  # Top 10
+                corr_data.append([
+                    corr["tag"],
+                    corr["count"],
+                    f"{corr['avg_recovery']:.1f}%",
+                    f"{corr['avg_strain']:.1f}"
+                ])
+
+            corr_df = pd.DataFrame(corr_data,
+                                  columns=["Tag", "Times Used", "Avg Recovery", "Avg Strain"])
+
+            st.table(corr_df)
+
+            st.caption("💡 Use this to find patterns - e.g., 'tired' tag on low recovery days")
+    else:
+        st.info("Track for 7+ days to see correlations between journal entries and metrics")
+
+    st.divider()
+
+    # ========================================================================
+    # VIEW ALL ENTRIES
+    # ========================================================================
+    st.subheader("📚 All Journal Entries")
+
+    all_journal = get_all_entries()
+
+    if all_journal:
+        # Show entries by date (most recent first)
+        dates = sorted(all_journal.keys(), reverse=True)
+
+        for date in dates[:10]:  # Show last 10 days
+            with st.expander(f"📅 {date}"):
+                for entry in all_journal[date]["entries"]:
+                    st.write(f"**{entry['timestamp']}**: {entry['text']}")
+                    if entry['tags']:
+                        st.caption(f"Tags: {', '.join(entry['tags'])}")
+                    st.write("---")
+    else:
+        st.info("No journal entries yet. Start logging above!")

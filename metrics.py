@@ -97,16 +97,17 @@ def estimate_respiratory_rate(df):
 def get_metrics():
     """
     Main function: Calculate and return all fitness metrics.
-    
+
     Returns dictionary with:
     - HRV, RHR, Strain (with steps), Recovery
     - Sleep duration, stages, efficiency
     - Stress, Readiness, Respiratory rate
     - Steps
+    - Calorie burn estimation
     """
     # Load merged data from Xiaomi + Coospo
     df = pd.read_csv("data/merged/daily_merged.csv", parse_dates=["timestamp"])
-    
+
     # ========================================================================
     # HRV (Heart Rate Variability) - RMSSD method
     # ========================================================================
@@ -128,7 +129,7 @@ def get_metrics():
     # STEPS - Get total steps for the day
     # ========================================================================
     total_steps = df["steps"].max() if "steps" in df.columns else 0
-    
+
     # ========================================================================
     # STRAIN - Cardiovascular load (0-21 scale, WHOOP-style)
     # ========================================================================
@@ -136,14 +137,14 @@ def get_metrics():
     # 0-7: Light day
     # 7-14: Moderate activity
     # 14-21: Hard training
-    
+
     # Part 1: Heart rate-based strain
     excess = df["bpm"] - rhr  # How much above resting
     hr_strain = min(21, np.sum(excess[excess > 0]) * 0.0001)  # Scale to 0–21
-    
+
     # Part 2: Step-based strain (10,000 steps ≈ 3 strain points)
     step_strain = (total_steps / 10000) * 3
-    
+
     # Combined strain
     strain = min(21, hr_strain + step_strain)
 
@@ -162,17 +163,17 @@ def get_metrics():
     # Extract sleep stages from Xiaomi data
     # 0 = awake, 1 = light, 2 = deep, 3 = REM
     sleep_df = df[df["sleep_stage"] > 0]  # Only sleeping periods
-    
+
     # Calculate durations (data is per-minute, convert to hours)
     sleep_duration = len(sleep_df) / 60  # Total sleep in hours
     deep = len(sleep_df[sleep_df["sleep_stage"] == 2]) / 60  # Deep sleep hours
     rem = len(sleep_df[sleep_df["sleep_stage"] == 3]) / 60   # REM sleep hours
     light = len(sleep_df[sleep_df["sleep_stage"] == 1]) / 60  # Light sleep hours
-    
+
     # Sleep efficiency (% of 8-hour ideal)
     efficiency = (sleep_duration / 8) * 100 if sleep_duration > 0 else 0
     efficiency_str = f"{int(efficiency)}%"
-    
+
     # ========================================================================
     # ADVANCED METRICS
     # ========================================================================
@@ -183,6 +184,16 @@ def get_metrics():
     respiratory_rate = estimate_respiratory_rate(df)
 
     # ========================================================================
+    # CALORIE BURN ESTIMATION
+    # ========================================================================
+    # Estimate calories from activity (steps + HR elevation)
+    # Base: 0.04 cal per step
+    # Plus: HR-based calories
+    step_calories = total_steps * 0.04
+    hr_calories = (strain / 14) * 500  # Strain 14 ≈ 500 cal
+    activity_calories = max(step_calories, hr_calories)  # Avoid double counting
+
+    # ========================================================================
     # RETURN ALL METRICS
     # ========================================================================
     return {
@@ -191,21 +202,23 @@ def get_metrics():
         "rhr": int(rhr),
         "strain": round(strain, 1),
         "recovery": int(recovery),
-        
+
         # Sleep metrics (formatted as strings)
         "sleep_duration": f"{int(sleep_duration)}h {int((sleep_duration % 1)*60)}m",
+        "sleep_duration_raw": sleep_duration,
         "deep": f"{int(deep)}h {int((deep % 1)*60)}m",
         "rem": f"{int(rem)}h {int((rem % 1)*60)}m",
         "light": f"{int(light)}h {int((light % 1)*60)}m",
         "efficiency": efficiency_str,
-        
+
         # Advanced metrics
         "stress": round(stress, 1),
         "readiness": readiness,
         "respiratory_rate": respiratory_rate,
-        
+
         # Activity
-        "steps": int(total_steps)
+        "steps": int(total_steps),
+        "activity_calories": int(activity_calories)
     }
 
 
