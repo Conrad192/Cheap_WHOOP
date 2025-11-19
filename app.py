@@ -1,9 +1,15 @@
 # ============================================================================
-# CHEAP WHOOP - Fitness Tracking App
+# CHEAP WHOOP - Advanced Fitness & Health Tracking App
 # ============================================================================
 # A low-cost alternative to WHOOP using affordable hardware (Xiaomi + Coospo)
-# Tracks heart rate, HRV, sleep, steps, body metrics, and provides
-# training recommendations based on recovery data.
+#
+# Features:
+# - Heart rate monitoring with personalized max HR zones
+# - HRV, sleep tracking, and recovery analysis
+# - Blood sugar tracking and insulin sensitivity assessment
+# - BMI, BMR, TDEE calculations
+# - Step counting and activity tracking
+# - Training readiness recommendations
 # ============================================================================
 
 import streamlit as st
@@ -15,6 +21,17 @@ import pandas as pd
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
 from merge import merge_data
+
+# Import our new utility modules
+from utils.health_calculations import (
+    calculate_max_heart_rate, calculate_heart_rate_zones, get_current_zone,
+    calculate_bmi, get_bmi_category, calculate_bmr, calculate_tdee,
+    cm_to_inches, inches_to_cm, kg_to_lbs, lbs_to_kg
+)
+from utils.blood_sugar import (
+    assess_insulin_sensitivity, save_glucose_measurement, load_glucose_history,
+    assess_fasting_glucose, assess_postprandial_glucose
+)
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -60,90 +77,22 @@ def save_user_profile(profile):
     with open("data/user_profile.json", "w") as f:
         json.dump(profile, f, indent=2)
 
-# Unit conversion functions
-def cm_to_inches(cm):
-    return cm / 2.54
-
-def inches_to_cm(inches):
-    return inches * 2.54
-
-def kg_to_lbs(kg):
-    return kg * 2.20462
-
-def lbs_to_kg(lbs):
-    return lbs / 2.20462
-
-# Metabolic calculations
-def calculate_bmr(weight_kg, height_cm, age, sex):
-    """
-    Calculate Basal Metabolic Rate using Mifflin-St Jeor Equation.
-    Returns calories burned per day at complete rest.
-    """
-    if sex.lower() == "male":
-        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
-    else:
-        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161
-    return bmr
-
-def calculate_tdee(bmr, activity_minutes_per_week=None, avg_steps_per_day=None):
-    """
-    Calculate Total Daily Energy Expenditure.
-    Uses either activity minutes OR step count for activity multiplier.
-    """
-    # Prefer steps if both are provided (more accurate)
-    if avg_steps_per_day:
-        if avg_steps_per_day < 3000:
-            activity_factor = 1.2  # Sedentary
-        elif avg_steps_per_day < 5000:
-            activity_factor = 1.375  # Lightly active
-        elif avg_steps_per_day < 7500:
-            activity_factor = 1.55  # Moderately active
-        elif avg_steps_per_day < 10000:
-            activity_factor = 1.725  # Very active
-        else:
-            activity_factor = 1.9  # Extremely active
-    elif activity_minutes_per_week:
-        if activity_minutes_per_week < 30:
-            activity_factor = 1.2
-        elif activity_minutes_per_week < 150:
-            activity_factor = 1.375
-        elif activity_minutes_per_week < 300:
-            activity_factor = 1.55
-        elif activity_minutes_per_week < 420:
-            activity_factor = 1.725
-        else:
-            activity_factor = 1.9
-    else:
-        activity_factor = 1.2  # Default to sedentary
-    
-    return bmr * activity_factor
-
-def calculate_bmi(weight_kg, height_cm):
-    """Calculate Body Mass Index"""
-    height_m = height_cm / 100
-    return weight_kg / (height_m ** 2)
-
-def get_bmi_category(bmi):
-    """Return BMI category and color for visualization"""
-    if bmi < 18.5:
-        return "Underweight", "blue"
-    elif bmi < 25:
-        return "Normal weight", "green"
-    elif bmi < 30:
-        return "Overweight", "orange"
-    else:
-        return "Obese", "red"
-
 # ============================================================================
 # PAGE SETUP
 # ============================================================================
 
-st.set_page_config(page_title="Cheap WHOOP", layout="centered")
-st.title("💪 Cheap WHOOP")
-st.caption("No $30/month. Just $75 hardware + your code.")
+st.set_page_config(page_title="Cheap WHOOP", layout="centered", page_icon="💪")
+st.title("💪 Cheap WHOOP - Advanced Health Tracker")
+st.caption("No $30/month subscription. Just $75 hardware + smart analytics.")
 
 # Create tabs for different sections
-tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚖️ BMI & Metabolism"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "❤️ Heart Data",
+    "😴 Sleep",
+    "📈 History",
+    "⚖️ BMI & Metabolism",
+    "🩸 Blood Sugar"
+])
 
 # ============================================================================
 # TAB 1: HEART DATA & RECOVERY
@@ -282,7 +231,76 @@ with tab1:
         st.metric("HRV", f"{m['hrv']} ms", help="Higher HRV = better recovery")
     with col_rhr:
         st.metric("Resting HR", f"{m['rhr']} BPM", help="Lower RHR = better fitness")
-    
+
+    # ========================================================================
+    # MAX HEART RATE & TRAINING ZONES (Personalized)
+    # ========================================================================
+    st.divider()
+    st.subheader("🎯 Your Personalized Training Zones")
+
+    # Get user profile for personalized max HR
+    profile = load_user_profile()
+
+    if profile:
+        # Calculate personalized max HR using weight-adjusted formula
+        max_hr = calculate_max_heart_rate(
+            profile["age"],
+            profile["weight_kg"],
+            method="inbar"  # Weight-adjusted formula
+        )
+
+        # Show max HR and current HR comparison
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Max Heart Rate", f"{max_hr} BPM",
+                     help=f"Personalized using age ({profile['age']}) and weight ({profile['weight_kg']:.1f} kg)")
+
+        with col2:
+            # Get current HR from recent data
+            df = load_merged_data()
+            if not df.empty:
+                current_hr = int(df["bpm"].iloc[-1])
+                hr_percentage = (current_hr / max_hr) * 100
+                st.metric("Current HR", f"{current_hr} BPM",
+                         delta=f"{hr_percentage:.0f}% of max")
+            else:
+                st.metric("Current HR", "N/A", help="No data available")
+
+        with col3:
+            st.metric("Resting HR", f"{m['rhr']} BPM",
+                     delta=f"{((m['rhr'] / max_hr) * 100):.0f}% of max")
+
+        # Display heart rate zones
+        zones = calculate_heart_rate_zones(max_hr)
+
+        with st.expander("📊 View Your Training Zones"):
+            st.write(f"**Based on your max HR of {max_hr} BPM:**")
+            st.write("")
+
+            for zone_key, zone_info in zones.items():
+                min_hr, max_zone_hr = zone_info["range"]
+                zone_name = zone_info["name"]
+                zone_desc = zone_info["description"]
+                zone_benefit = zone_info["benefit"]
+
+                # Color-code zones
+                if "Recovery" in zone_name:
+                    color = "🟦"
+                elif "Fat Burn" in zone_name:
+                    color = "🟩"
+                elif "Aerobic" in zone_name:
+                    color = "🟨"
+                elif "Threshold" in zone_name:
+                    color = "🟧"
+                else:
+                    color = "🟥"
+
+                st.write(f"{color} **{zone_name}**: {min_hr}-{max_zone_hr} BPM")
+                st.caption(f"   ➜ {zone_desc} — *{zone_benefit}*")
+                st.write("")
+    else:
+        st.info("💡 Complete your profile in the **BMI & Metabolism** tab to see personalized training zones!")
+
     # ========================================================================
     # STEP TRACKING SECTION
     # ========================================================================
@@ -950,3 +968,365 @@ with tab4:
                 st.error("🛑 Rest day - focus on recovery")
     else:
         st.info("👆 Fill out the form above to calculate your metrics!")
+
+# ============================================================================
+# TAB 5: BLOOD SUGAR TRACKING
+# ============================================================================
+
+with tab5:
+    st.subheader("🩸 Blood Sugar & Insulin Sensitivity Tracker")
+
+    st.info("""
+    **📋 How to use this tracker:**
+    1. Measure your fasting blood glucose (before eating)
+    2. Eat your meal
+    3. Wait 1-2 hours after starting your meal
+    4. Measure your blood glucose again (post-meal)
+    5. Enter both values below to assess your insulin sensitivity
+    """)
+
+    # ========================================================================
+    # BLOOD GLUCOSE INPUT FORM
+    # ========================================================================
+    with st.form("blood_sugar_form"):
+        st.write("### 📊 Enter Your Measurements")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("**Before Meal (Fasting):**")
+            fasting_glucose = st.number_input(
+                "Fasting Blood Glucose (mg/dL)",
+                min_value=40.0,
+                max_value=400.0,
+                value=90.0,
+                step=1.0,
+                help="Measure BEFORE eating (ideally after 8+ hours of fasting)"
+            )
+
+            # Show real-time fasting assessment
+            fasting_assess = assess_fasting_glucose(fasting_glucose)
+            st.caption(f"{fasting_assess['emoji']} {fasting_assess['status']}")
+
+        with col2:
+            st.write("**After Meal (Postprandial):**")
+            postprandial_glucose = st.number_input(
+                "Post-Meal Blood Glucose (mg/dL)",
+                min_value=40.0,
+                max_value=400.0,
+                value=120.0,
+                step=1.0,
+                help="Measure 1-2 hours AFTER starting your meal"
+            )
+
+            hours_after = st.number_input(
+                "Hours after meal started",
+                min_value=0.5,
+                max_value=4.0,
+                value=1.0,
+                step=0.25,
+                help="Ideally 1-2 hours for accurate results"
+            )
+
+        # Meal information
+        col3, col4 = st.columns(2)
+        with col3:
+            meal_type = st.selectbox(
+                "Meal Type",
+                ["Breakfast", "Lunch", "Dinner", "Snack"],
+                help="Which meal did you test?"
+            )
+
+        with col4:
+            notes = st.text_input(
+                "Notes (optional)",
+                placeholder="e.g., 'High carb pasta meal'",
+                help="Any details about the meal"
+            )
+
+        # Submit button
+        submitted = st.form_submit_button("🔬 Analyze My Results", use_container_width=True)
+
+    # ========================================================================
+    # DISPLAY RESULTS
+    # ========================================================================
+    if submitted:
+        # Get comprehensive assessment
+        assessment = assess_insulin_sensitivity(
+            fasting_glucose,
+            postprandial_glucose,
+            hours_after
+        )
+
+        # Save to history
+        save_glucose_measurement(
+            fasting_glucose,
+            postprandial_glucose,
+            hours_after,
+            meal_type,
+            notes
+        )
+
+        st.success("✅ Measurement saved to history!")
+        st.divider()
+
+        # ====================================================================
+        # OVERALL HEALTH STATUS
+        # ====================================================================
+        st.subheader(f"{assessment['overall_emoji']} Overall Assessment")
+
+        # Large, prominent status display
+        status_color_map = {
+            "green": "🟢",
+            "lightgreen": "🟢",
+            "orange": "🟠",
+            "red": "🔴"
+        }
+
+        status_emoji = status_color_map.get(assessment['overall_color'], "⚪")
+
+        st.markdown(f"### {status_emoji} {assessment['overall_status']}")
+        st.markdown(f"**Insulin Sensitivity Score: {assessment['sensitivity_score']}/100**")
+
+        # Progress bar for sensitivity score
+        score_color = assessment['overall_color']
+        st.progress(assessment['sensitivity_score'] / 100)
+
+        # Risk level
+        if assessment['risk_level'] == "Low Risk":
+            st.success(f"**Risk Level:** {assessment['risk_level']}")
+        elif "Moderate" in assessment['risk_level']:
+            st.warning(f"**Risk Level:** {assessment['risk_level']}")
+        else:
+            st.error(f"**Risk Level:** {assessment['risk_level']}")
+
+        st.divider()
+
+        # ====================================================================
+        # DETAILED BREAKDOWN
+        # ====================================================================
+        st.subheader("📋 Detailed Analysis")
+
+        col1, col2, col3 = st.columns(3)
+
+        # Fasting glucose
+        with col1:
+            fasting = assessment['fasting_assessment']
+            st.metric(
+                "Fasting Glucose",
+                f"{fasting_glucose:.0f} mg/dL",
+                delta=fasting['status']
+            )
+            if fasting['category'] == 'healthy':
+                st.success(f"{fasting['emoji']} {fasting['status']}")
+            elif fasting['category'] == 'warning':
+                st.warning(f"{fasting['emoji']} {fasting['status']}")
+            else:
+                st.error(f"{fasting['emoji']} {fasting['status']}")
+
+        # Post-meal glucose
+        with col2:
+            postprandial = assessment['postprandial_assessment']
+            st.metric(
+                f"Post-Meal ({hours_after}h)",
+                f"{postprandial_glucose:.0f} mg/dL",
+                delta=postprandial['status']
+            )
+            if postprandial['category'] == 'healthy':
+                st.success(f"{postprandial['emoji']} {postprandial['status']}")
+            elif postprandial['category'] == 'warning':
+                st.warning(f"{postprandial['emoji']} {postprandial['status']}")
+            else:
+                st.error(f"{postprandial['emoji']} {postprandial['status']}")
+
+        # Glucose spike
+        with col3:
+            spike = assessment['spike_assessment']
+            st.metric(
+                "Glucose Spike",
+                f"{spike['spike_mg_dl']:.0f} mg/dL",
+                delta=spike['status']
+            )
+            spike_color_map = {
+                "green": st.success,
+                "lightgreen": st.success,
+                "orange": st.warning,
+                "red": st.error,
+                "blue": st.info
+            }
+            display_func = spike_color_map.get(spike['color'], st.info)
+            display_func(f"{spike['emoji']} {spike['status']}")
+
+        st.divider()
+
+        # ====================================================================
+        # RECOMMENDATIONS
+        # ====================================================================
+        st.subheader("💡 Personalized Recommendations")
+
+        # Main recommendation
+        if assessment['sensitivity_score'] >= 80:
+            st.success(assessment['recommendation'])
+        elif assessment['sensitivity_score'] >= 60:
+            st.info(assessment['recommendation'])
+        elif assessment['sensitivity_score'] >= 40:
+            st.warning(assessment['recommendation'])
+        else:
+            st.error(assessment['recommendation'])
+
+        # Additional educational info
+        with st.expander("📚 Understanding Your Results"):
+            st.write("""
+            **What is Insulin Sensitivity?**
+            - Insulin sensitivity is how well your cells respond to insulin
+            - High sensitivity = GOOD (cells efficiently absorb glucose)
+            - Low sensitivity (insulin resistance) = BAD (risk for type 2 diabetes)
+
+            **Healthy Blood Sugar Ranges:**
+            - **Fasting:** 70-99 mg/dL (normal), 100-125 (prediabetes), 126+ (diabetes)
+            - **Post-meal (1-2h):** < 140 mg/dL (normal), 140-199 (prediabetes), 200+ (diabetes)
+            - **Glucose Spike:** < 30-40 mg/dL (excellent control)
+
+            **How to Improve Insulin Sensitivity:**
+            1. **Diet:** Reduce refined carbs and sugar, increase fiber, eat more vegetables
+            2. **Exercise:** 150+ min/week, especially strength training
+            3. **Sleep:** 7-9 hours quality sleep per night
+            4. **Weight:** Lose excess weight (even 5-10% helps significantly)
+            5. **Stress:** Manage stress through meditation, yoga, or other relaxation
+            6. **Fasting:** Consider intermittent fasting (consult doctor first)
+
+            **When to See a Doctor:**
+            - Fasting glucose consistently > 100 mg/dL
+            - Post-meal glucose > 140 mg/dL
+            - Large glucose spikes (> 50 mg/dL)
+            - Symptoms: excessive thirst, frequent urination, fatigue, blurred vision
+            """)
+
+        # Spike visualization
+        with st.expander("📊 Visualize Your Glucose Response"):
+            import plotly.graph_objects as go
+
+            # Create a simple visualization of the glucose curve
+            fig = go.Figure()
+
+            # Simulated glucose curve (simplified model)
+            time_points = [0, hours_after]
+            glucose_values = [fasting_glucose, postprandial_glucose]
+
+            fig.add_trace(go.Scatter(
+                x=time_points,
+                y=glucose_values,
+                mode='lines+markers',
+                name='Your Glucose',
+                line=dict(color=assessment['overall_color'], width=4),
+                marker=dict(size=12)
+            ))
+
+            # Add healthy reference range
+            fig.add_hline(y=140, line_dash="dash", line_color="orange",
+                         annotation_text="Post-meal threshold (140 mg/dL)")
+            fig.add_hline(y=100, line_dash="dash", line_color="green",
+                         annotation_text="Fasting threshold (100 mg/dL)")
+
+            fig.update_layout(
+                title="Your Glucose Response Curve",
+                xaxis_title="Hours After Meal",
+                yaxis_title="Blood Glucose (mg/dL)",
+                height=400,
+                showlegend=True
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ========================================================================
+    # GLUCOSE HISTORY
+    # ========================================================================
+    st.divider()
+    st.subheader("📊 Your Blood Sugar History")
+
+    history = load_glucose_history()
+
+    if not history.empty:
+        # Summary statistics
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            avg_fasting = history['fasting_mg_dl'].mean()
+            st.metric("Avg Fasting", f"{avg_fasting:.1f} mg/dL")
+
+        with col2:
+            avg_postprandial = history['postprandial_mg_dl'].mean()
+            st.metric("Avg Post-Meal", f"{avg_postprandial:.1f} mg/dL")
+
+        with col3:
+            avg_sensitivity = history['sensitivity_score'].mean()
+            st.metric("Avg Sensitivity Score", f"{avg_sensitivity:.0f}/100")
+
+        # History table
+        st.write("### Recent Measurements")
+
+        # Format the display dataframe
+        display_df = history[['date', 'meal_type', 'fasting_mg_dl', 'postprandial_mg_dl',
+                              'spike_mg_dl', 'sensitivity_score', 'notes']].copy()
+        display_df.columns = ['Date', 'Meal', 'Fasting', 'Post-Meal', 'Spike', 'Score', 'Notes']
+
+        # Sort by most recent first
+        display_df = display_df.sort_values('Date', ascending=False)
+
+        st.dataframe(display_df.head(10), use_container_width=True)
+
+        # Trend visualization
+        with st.expander("📈 View Trends Over Time"):
+            metric_choice = st.selectbox(
+                "Select metric to visualize:",
+                ["Sensitivity Score", "Fasting Glucose", "Post-Meal Glucose", "Glucose Spike"]
+            )
+
+            metric_map = {
+                "Sensitivity Score": "sensitivity_score",
+                "Fasting Glucose": "fasting_mg_dl",
+                "Post-Meal Glucose": "postprandial_mg_dl",
+                "Glucose Spike": "spike_mg_dl"
+            }
+
+            metric_col = metric_map[metric_choice]
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=history['date'],
+                y=history[metric_col],
+                mode='lines+markers',
+                line=dict(width=3),
+                marker=dict(size=8)
+            ))
+
+            fig.update_layout(
+                title=f"{metric_choice} Over Time",
+                xaxis_title="Date",
+                yaxis_title=metric_choice,
+                height=400
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        st.info("📝 No history yet. Complete the form above to start tracking your blood sugar!")
+
+    # Educational section
+    with st.expander("❓ Why Track Blood Sugar?"):
+        st.write("""
+        **Blood sugar tracking is important even if you're not diabetic:**
+
+        ✅ **Early Detection:** Catch prediabetes before it becomes diabetes
+        ✅ **Performance:** Stable blood sugar = better energy and focus
+        ✅ **Weight Management:** Understanding glucose response helps optimize diet
+        ✅ **Longevity:** Good glucose control reduces aging and disease risk
+        ✅ **Athletic Performance:** Optimize fueling for workouts and recovery
+
+        **Best Practices:**
+        - Test at the same times for consistency
+        - Track what you eat to identify problem foods
+        - Aim for minimal glucose spikes (< 30 mg/dL)
+        - Test different meal compositions to find what works for you
+        - Share results with your doctor during checkups
+        """)
