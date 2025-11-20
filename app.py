@@ -589,6 +589,8 @@ with tabs[1]:
         st.subheader("Hourly Strain Breakdown")
 
         hourly_df = m["hourly_strain"].reset_index()
+        hourly_df.columns = ['timestamp', 'strain']
+        hourly_df['hour'] = hourly_df['timestamp'].dt.hour
 
         fig = go.Figure(data=[
             go.Bar(x=hourly_df['hour'], y=hourly_df['strain'], marker_color='cyan')
