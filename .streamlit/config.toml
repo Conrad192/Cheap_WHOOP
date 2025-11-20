@@ -1,0 +1,42 @@
+# Streamlit Configuration for Cheap WHOOP
+# Professional analytics theme with light/dark mode support
+
+[theme]
+# Base theme - users can toggle between light/dark in the UI
+base = "light"
+
+# Primary color for buttons and interactive elements
+primaryColor = "#1f77b4"
+
+# Background color
+backgroundColor = "#ffffff"
+
+# Secondary background color (for sidebar, widgets)
+secondaryBackgroundColor = "#f0f2f6"
+
+# Text color
+textColor = "#262730"
+
+# Font
+font = "sans serif"
+
+[server]
+# Disable file watcher for production
+fileWatcherType = "none"
+
+# Enable CORS for web deployment
+enableCORS = false
+
+# Enable XSS protection
+enableXsrfProtection = true
+
+[browser]
+# Gather usage stats
+gatherUsageStats = false
+
+[ui]
+# Hide the hamburger menu in production
+hideTopBar = false
+
+# Hide the sidebar by default for cleaner look
+hideSidebarNav = false
