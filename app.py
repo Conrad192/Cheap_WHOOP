@@ -184,6 +184,27 @@ if st.session_state.theme == "dark":
         background-color: #0E1117;
         color: #FAFAFA;
     }
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span {
+        color: #FAFAFA !important;
+    }
+    .stMetric label, .stMetric .css-1wivap2, .stMetric div {
+        color: #FAFAFA !important;
+    }
+    .stMetricValue {
+        color: #FFFFFF !important;
+    }
+    .stCaption, .css-10y5sf6, caption {
+        color: #B0B0B0 !important;
+    }
+    .stWrite, .stWrite p, .stWrite span {
+        color: #FAFAFA !important;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        color: #FFFFFF !important;
+    }
+    .stSelectbox label, .stRadio label, .stTextArea label {
+        color: #FAFAFA !important;
+    }
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
     }
@@ -191,6 +212,11 @@ if st.session_state.theme == "dark":
         padding: 8px 16px;
         font-size: 14px;
         font-weight: 500;
+        color: #FAFAFA !important;
+    }
+    /* Info, success, warning, error boxes */
+    .stAlert {
+        color: #000000 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -589,9 +615,10 @@ with tabs[1]:
         st.subheader("Hourly Strain Breakdown")
 
         hourly_df = m["hourly_strain"].reset_index()
+        hourly_df['hour'] = hourly_df['timestamp'].dt.hour  # Extract hour from timestamp
 
         fig = go.Figure(data=[
-            go.Bar(x=hourly_df['hour'], y=hourly_df['strain'], marker_color='cyan')
+            go.Bar(x=hourly_df['hour'], y=hourly_df[0], marker_color='cyan')  # Column 0 contains strain values
         ])
         fig.update_layout(
             title="Strain by Hour of Day",
