@@ -190,7 +190,18 @@ with tab1:
                 "stress": [m["stress"]],
                 "readiness": [m["readiness"]],
                 "steps": [m["steps"]],
-                "weight_kg": [current_weight]
+                "weight_kg": [current_weight],
+                # Sleep metrics
+                "sleep_score": [m["sleep_score"]],
+                "sleep_duration_hours": [m["sleep_duration_hours"]],
+                "sleep_efficiency_pct": [m["sleep_efficiency_pct"]],
+                "sleep_sufficiency": [m["sleep_sufficiency"]],
+                "sleep_consistency": [m["sleep_consistency"]],
+                "sleep_debt_minutes": [m["sleep_debt_minutes"]],
+                "restorative_sleep_pct": [m["restorative_sleep_pct"]],
+                "deep_hours": [m["deep_hours"]],
+                "rem_hours": [m["rem_hours"]],
+                "light_hours": [m["light_hours"]]
             })
 
             # Append to existing history or create new file
@@ -501,26 +512,174 @@ with tab1:
 # ============================================================================
 
 with tab2:
-    st.subheader("😴 Sleep Analysis")
+    st.subheader("😴 Sleep Performance")
     m = get_metrics()
 
-    # Display sleep metrics in table format
-    sleep_data = {
-        "Duration": m["sleep_duration"],
-        "Deep": m["deep"],
-        "REM": m["rem"],
-        "Light": m["light"],
-        "Efficiency": m["efficiency"]
-    }
+    # ========================================================================
+    # SLEEP PERFORMANCE SCORE GAUGE (similar to WHOOP)
+    # ========================================================================
+    col1, col2 = st.columns(2)
 
-    st.table(sleep_data)
+    with col1:
+        # Main Sleep Performance Score Gauge
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=m["sleep_score"],
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "<b>Sleep Performance</b>"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "mediumpurple"},
+                'steps': [
+                    {'range': [0, 60], 'color': "lightgray"},
+                    {'range': [60, 85], 'color': "lightyellow"},
+                    {'range': [85, 100], 'color': "lightgreen"}
+                ],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': 85
+                }
+            }
+        ))
+        fig.update_layout(height=300)
+        st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("What is Sleep Analysis?"):
+        # Sleep Performance Interpretation
+        if m["sleep_score"] >= 85:
+            st.success("🌟 **Excellent Sleep!** You're well-rested and recovered.")
+        elif m["sleep_score"] >= 70:
+            st.info("😊 **Good Sleep** - Adequate rest for most activities.")
+        elif m["sleep_score"] >= 60:
+            st.warning("😴 **Fair Sleep** - Consider improving sleep quality.")
+        else:
+            st.error("🚨 **Poor Sleep** - Prioritize rest and recovery.")
+
+    with col2:
+        # Sleep Need vs Actual
+        st.metric(
+            "Sleep Duration",
+            m["sleep_duration"],
+            delta=f"Need: {m['sleep_need_hours']}h"
+        )
+
+        # Sleep Debt
+        debt_hours = m["sleep_debt_minutes"] / 60
+        debt_label = "🟢 No Debt" if m["sleep_debt_minutes"] < 30 else f"⚠️ {int(m['sleep_debt_minutes'])} min debt"
+        st.metric(
+            "Sleep Debt",
+            debt_label,
+            delta="Optimal: <30 min" if m["sleep_debt_minutes"] < 30 else "Need more sleep"
+        )
+
+        # Restorative Sleep
+        st.metric(
+            "Restorative Sleep",
+            f"{m['restorative_sleep_pct']}%",
+            delta="Target: 50%" if m["restorative_sleep_pct"] >= 50 else "Need more deep/REM"
+        )
+
+    # ========================================================================
+    # SLEEP SCORE COMPONENTS
+    # ========================================================================
+    st.markdown("---")
+    st.subheader("📊 Sleep Score Components")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "Sufficiency",
+            f"{m['sleep_sufficiency']}%",
+            help="Did you get enough sleep based on your needs? (40% of score)"
+        )
+
+    with col2:
+        st.metric(
+            "Efficiency",
+            f"{m['sleep_efficiency_pct']}%",
+            help="% of time in bed actually asleep (30% of score). Target: >85%"
+        )
+
+    with col3:
+        st.metric(
+            "Consistency",
+            f"{m['sleep_consistency']}%",
+            help="Regularity of sleep/wake times over 4 days (20% of score). Target: >90%"
+        )
+
+    with col4:
+        st.metric(
+            "Low Stress",
+            f"{m['sleep_stress_score']}%",
+            help="Physiological stress during sleep (10% of score). Higher = less stress"
+        )
+
+    # ========================================================================
+    # SLEEP STAGES BREAKDOWN
+    # ========================================================================
+    st.markdown("---")
+    st.subheader("🌙 Sleep Stages Breakdown")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Sleep stages table
+        sleep_data = {
+            "Stage": ["Total Sleep", "Light", "Deep", "REM"],
+            "Duration": [
+                m["sleep_duration"],
+                m["light"],
+                m["deep"],
+                m["rem"]
+            ]
+        }
+        st.table(sleep_data)
+
+    with col2:
+        # Sleep stages pie chart
+        stages_fig = go.Figure(data=[go.Pie(
+            labels=['Light', 'Deep', 'REM'],
+            values=[m['light_hours'], m['deep_hours'], m['rem_hours']],
+            marker=dict(colors=['lightblue', 'darkblue', 'purple'])
+        )])
+        stages_fig.update_layout(
+            title="Sleep Stage Distribution",
+            height=300
+        )
+        st.plotly_chart(stages_fig, use_container_width=True)
+
+    # ========================================================================
+    # SLEEP ANALYSIS EXPLANATION
+    # ========================================================================
+    with st.expander("ℹ️ How Sleep Performance is Calculated"):
         st.write("""
-        Sleep stages are estimated using:
-        - HRV dips (indicates deep sleep)
-        - Heart rate trends (lower during deep sleep)
-        - Movement patterns from wearable
+        **Sleep Performance Score** is calculated using 4 components (similar to WHOOP):
+
+        1. **Sufficiency (40%)**: Did you get enough sleep based on your needs?
+           - Baseline: 8 hours
+           - Adjusted based on previous day's strain
+
+        2. **Efficiency (30%)**: Quality of sleep - % of time in bed actually asleep
+           - Target: >85% (Average: 94.4%)
+           - Measures sleep disruptions
+
+        3. **Consistency (20%)**: Regularity of sleep/wake times over last 4 days
+           - Target: >90% for optimal circadian rhythm
+           - Tracks sleep schedule stability
+
+        4. **Low Stress (10%)**: Physiological stress during sleep
+           - Based on heart rate and HRV during sleep
+           - Lower stress = better recovery
+
+        **Additional Metrics:**
+        - **Sleep Debt**: Accumulated deficit (optimal: <30-45 minutes)
+        - **Restorative Sleep**: % time in Deep + REM stages (target: ~50%)
+
+        **Sleep Stages:**
+        - Light: Transition sleep, easily awakened
+        - Deep: Physical recovery, immune system boost
+        - REM: Mental recovery, memory consolidation
         """)
 
 # ============================================================================
@@ -550,7 +709,7 @@ with tab3:
         # Metric selector
         metric = st.selectbox(
             "Select Metric to View",
-            ["recovery", "strain", "rhr", "hrv", "stress", "readiness", "steps", "weight_kg"],
+            ["recovery", "strain", "rhr", "hrv", "stress", "readiness", "sleep_score", "sleep_duration_hours", "sleep_efficiency_pct", "restorative_sleep_pct", "steps", "weight_kg"],
             index=0
         )
 
@@ -619,6 +778,10 @@ with tab3:
                 "hrv": "HRV (ms)",
                 "stress": "Stress (0-10)",
                 "readiness": "Readiness (%)",
+                "sleep_score": "Sleep Performance (%)",
+                "sleep_duration_hours": "Sleep Duration (hours)",
+                "sleep_efficiency_pct": "Sleep Efficiency (%)",
+                "restorative_sleep_pct": "Restorative Sleep (%)",
                 "steps": "Steps"
             }
             
