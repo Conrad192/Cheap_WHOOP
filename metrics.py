@@ -94,15 +94,76 @@ def estimate_respiratory_rate(df):
     return round(min(30, max(8, breaths_per_min)), 1)
 
 
+def detect_workouts(df, rhr):
+    """
+    Auto-detect workouts from elevated heart rate periods.
+
+    A workout is defined as:
+    - Heart rate elevated above (RHR + 30) BPM
+    - Duration of at least 10 minutes
+    - Returns list of workout dictionaries with start time, duration, intensity
+    """
+    workouts = []
+
+    if df.empty:
+        return workouts
+
+    # Define workout threshold (RHR + 30 BPM)
+    threshold = rhr + 30
+
+    # Find periods where HR is elevated
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    elevated = df[df["bpm"] > threshold].copy()
+
+    if elevated.empty:
+        return workouts
+
+    # Group consecutive elevated periods
+    elevated["time_diff"] = elevated["timestamp"].diff().dt.total_seconds()
+    elevated["new_workout"] = elevated["time_diff"] > 300  # 5 min gap = new workout
+    elevated["workout_id"] = elevated["new_workout"].cumsum()
+
+    # Process each workout
+    for workout_id in elevated["workout_id"].unique():
+        workout_data = elevated[elevated["workout_id"] == workout_id]
+
+        duration_minutes = len(workout_data)  # Data is per-minute
+
+        # Only include if >= 10 minutes
+        if duration_minutes >= 10:
+            avg_hr = workout_data["bpm"].mean()
+            max_hr = workout_data["bpm"].max()
+            start_time = workout_data["timestamp"].iloc[0]
+
+            # Determine intensity based on heart rate
+            if avg_hr > rhr + 60:
+                intensity = "High"
+            elif avg_hr > rhr + 45:
+                intensity = "Moderate"
+            else:
+                intensity = "Light"
+
+            workouts.append({
+                "start": start_time,
+                "duration_min": duration_minutes,
+                "avg_hr": int(avg_hr),
+                "max_hr": int(max_hr),
+                "intensity": intensity
+            })
+
+    return workouts
+
+
 def get_metrics():
     """
     Main function: Calculate and return all fitness metrics.
-    
+
     Returns dictionary with:
     - HRV, RHR, Strain (with steps), Recovery
     - Sleep duration, stages, efficiency
     - Stress, Readiness, Respiratory rate
     - Steps
+    - Workouts (auto-detected from elevated HR)
     """
     # Load merged data from Xiaomi + Coospo
     df = pd.read_csv("data/merged/daily_merged.csv", parse_dates=["timestamp"])
@@ -183,6 +244,158 @@ def get_metrics():
     respiratory_rate = estimate_respiratory_rate(df)
 
     # ========================================================================
+    # WORKOUT DETECTION
+    # ========================================================================
+    # Auto-detect workouts from elevated heart rate periods
+    workouts = detect_workouts(df, rhr)
+
+    # ========================================================================
+    # SLEEP PERFORMANCE SCORE
+    # ========================================================================
+    # Calculate comprehensive sleep score (0-100)
+    sleep_score = 0
+    if sleep_duration > 0:
+        duration_score = min(100, (sleep_duration / 8) * 100)
+        deep_score = min(100, (deep / 2) * 100) if deep > 0 else 0
+        rem_score = min(100, (rem / 2) * 100) if rem > 0 else 0
+        sleep_score = int((duration_score * 0.4) + (deep_score * 0.3) + (rem_score * 0.3))
+
+    # ========================================================================
+    # VO2 MAX ESTIMATION
+    # ========================================================================
+    # Simple estimation based on RHR and age (assuming age 30)
+    vo2_max = max(35, min(80, 15.3 * (220 - 30) / rhr))
+
+    # ========================================================================
+    # SPO2 DATA
+    # ========================================================================
+    spo2_data = None
+    if "spo2" in df.columns:
+        spo2_readings = df["spo2"].dropna()
+        if len(spo2_readings) > 0:
+            excellent = len(spo2_readings[spo2_readings >= 98])
+            good = len(spo2_readings[(spo2_readings >= 95) & (spo2_readings < 98)])
+            low = len(spo2_readings[spo2_readings < 95])
+            total = len(spo2_readings)
+
+            spo2_data = {
+                "avg": int(spo2_readings.mean()),
+                "min": int(spo2_readings.min()),
+                "max": int(spo2_readings.max()),
+                "excellent_pct": int((excellent / total) * 100),
+                "good_pct": int((good / total) * 100),
+                "low_pct": int((low / total) * 100),
+                "alerts": ["Low oxygen detected" if spo2_readings.min() < 90 else ""]
+            }
+
+    # ========================================================================
+    # HEART RATE ZONES
+    # ========================================================================
+    max_hr = 220 - 30  # Assuming age 30
+    zones = {
+        "Zone 1 (50-60%)": len(df[(df["bpm"] >= max_hr * 0.5) & (df["bpm"] < max_hr * 0.6)]),
+        "Zone 2 (60-70%)": len(df[(df["bpm"] >= max_hr * 0.6) & (df["bpm"] < max_hr * 0.7)]),
+        "Zone 3 (70-80%)": len(df[(df["bpm"] >= max_hr * 0.7) & (df["bpm"] < max_hr * 0.8)]),
+        "Zone 4 (80-90%)": len(df[(df["bpm"] >= max_hr * 0.8) & (df["bpm"] < max_hr * 0.9)]),
+        "Zone 5 (90-100%)": len(df[df["bpm"] >= max_hr * 0.9])
+    }
+
+    # ========================================================================
+    # HOURLY STRAIN
+    # ========================================================================
+    hourly_strain = df.set_index("timestamp").resample("1H")["bpm"].apply(
+        lambda x: min(21, np.sum((x - rhr)[x > rhr]) * 0.0001) if len(x) > 0 else 0
+    )
+
+    # ========================================================================
+    # STRAIN GOAL & COACH
+    # ========================================================================
+    if recovery >= 67:
+        strain_goal = {"min": 10, "max": 18, "label": "High Intensity"}
+        strain_coach = "Your recovery is strong. You can push hard today."
+    elif recovery >= 34:
+        strain_goal = {"min": 6, "max": 12, "label": "Moderate Intensity"}
+        strain_coach = "Moderate recovery. Focus on quality over quantity."
+    else:
+        strain_goal = {"min": 0, "max": 6, "label": "Light Activity"}
+        strain_coach = "Prioritize rest and recovery today."
+
+    # ========================================================================
+    # OVERTRAINING & REST DAY DETECTION
+    # ========================================================================
+    overtraining = {
+        "risk": "low",
+        "alerts": [],
+        "recommendation": "Keep training as planned"
+    }
+    if strain > 18 and recovery < 50:
+        overtraining["risk"] = "high"
+        overtraining["alerts"].append("High strain with low recovery")
+        overtraining["recommendation"] = "Take a rest day"
+    elif strain > 15 and recovery < 60:
+        overtraining["risk"] = "moderate"
+        overtraining["alerts"].append("Elevated strain with moderate recovery")
+        overtraining["recommendation"] = "Light activity only"
+
+    rest_day = None
+    if recovery < 34:
+        rest_day = {
+            "rest_recommended": True,
+            "reasons": ["Recovery below 34%", "Body needs rest"]
+        }
+
+    # ========================================================================
+    # RECOVERY PREDICTION
+    # ========================================================================
+    recovery_prediction = None
+    if strain < 10:
+        predicted = min(100, recovery + 10)
+        confidence = "high"
+    elif strain < 15:
+        predicted = recovery
+        confidence = "medium"
+    else:
+        predicted = max(33, recovery - 10)
+        confidence = "low"
+
+    recovery_prediction = {
+        "predicted_recovery": predicted,
+        "confidence": confidence,
+        "factors": {
+            "hrv_trend": "stable",
+            "rhr_trend": "stable",
+            "strain_level": "high" if strain > 15 else "moderate" if strain > 10 else "low"
+        }
+    }
+
+    # ========================================================================
+    # TRAINING LOAD (7-day total strain)
+    # ========================================================================
+    training_load = strain * 7  # Simplified - would need history for real calculation
+
+    # ========================================================================
+    # ACHIEVEMENTS & RECORDS
+    # ========================================================================
+    achievements = []
+    if recovery >= 90:
+        achievements.append({"icon": "⭐", "name": "Peak Recovery", "description": "Recovery above 90%"})
+    if strain >= 18:
+        achievements.append({"icon": "🔥", "name": "Beast Mode", "description": "Strain above 18"})
+
+    personal_records = {
+        "best_recovery": recovery,
+        "best_recovery_date": "Today",
+        "highest_hrv": int(hrv),
+        "highest_hrv_date": "Today",
+        "lowest_rhr": int(rhr),
+        "lowest_rhr_date": "Today",
+        "max_strain": round(strain, 1),
+        "max_strain_date": "Today",
+        "max_steps": int(total_steps),
+        "max_steps_date": "Today"
+    }
+
+    # ========================================================================
     # RETURN ALL METRICS
     # ========================================================================
     return {
@@ -191,21 +404,45 @@ def get_metrics():
         "rhr": int(rhr),
         "strain": round(strain, 1),
         "recovery": int(recovery),
-        
+
         # Sleep metrics (formatted as strings)
         "sleep_duration": f"{int(sleep_duration)}h {int((sleep_duration % 1)*60)}m",
+        "sleep_duration_hours": sleep_duration,
         "deep": f"{int(deep)}h {int((deep % 1)*60)}m",
+        "deep_hours": deep,
         "rem": f"{int(rem)}h {int((rem % 1)*60)}m",
+        "rem_hours": rem,
         "light": f"{int(light)}h {int((light % 1)*60)}m",
+        "light_hours": light,
         "efficiency": efficiency_str,
-        
+        "sleep_score": sleep_score,
+
         # Advanced metrics
         "stress": round(stress, 1),
         "readiness": readiness,
         "respiratory_rate": respiratory_rate,
-        
+        "vo2_max": round(vo2_max, 1),
+        "spo2_data": spo2_data,
+        "hr_zones": zones,
+        "hourly_strain": hourly_strain,
+
+        # Training guidance
+        "strain_goal": strain_goal,
+        "strain_coach": strain_coach,
+        "overtraining": overtraining,
+        "rest_day": rest_day,
+        "recovery_prediction": recovery_prediction,
+        "training_load": training_load,
+
         # Activity
-        "steps": int(total_steps)
+        "steps": int(total_steps),
+
+        # Workouts (auto-detected)
+        "workouts": workouts,
+
+        # Achievements
+        "achievements": achievements,
+        "personal_records": personal_records
     }
 
 

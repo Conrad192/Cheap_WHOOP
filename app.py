@@ -159,12 +159,12 @@ def export_to_csv():
     return buffer.getvalue()
 
 # ============================================================================
-# DARK MODE SETUP
+# THEME SETUP
 # ============================================================================
 
-# Load dark mode preference
-if 'dark_mode' not in st.session_state:
-    st.session_state.dark_mode = False
+# Load theme preference
+if 'theme' not in st.session_state:
+    st.session_state.theme = "light"
 
 # ============================================================================
 # PAGE SETUP
@@ -176,31 +176,60 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dark mode toggle in sidebar
+# Apply theme CSS
+if st.session_state.theme == "dark":
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0E1117;
+        color: #FAFAFA;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #FFFFFF;
+        color: #262730;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Settings sidebar
 with st.sidebar:
-    st.title("⚙️ Settings")
+    st.title("Settings")
 
-    # Dark mode toggle
-    dark_mode = st.toggle("🌙 Dark Mode", value=st.session_state.dark_mode)
-    if dark_mode != st.session_state.dark_mode:
-        st.session_state.dark_mode = dark_mode
+    # Theme toggle
+    theme_options = ["Light", "Dark"]
+    current_theme = "Dark" if st.session_state.theme == "dark" else "Light"
+    selected_theme = st.radio("Theme", theme_options, index=theme_options.index(current_theme), horizontal=True)
+
+    new_theme = "dark" if selected_theme == "Dark" else "light"
+    if new_theme != st.session_state.theme:
+        st.session_state.theme = new_theme
         st.rerun()
-
-    # Apply dark mode CSS
-    if st.session_state.dark_mode:
-        st.markdown("""
-        <style>
-        .stApp {
-            background-color: #0E1117;
-            color: #FAFAFA;
-        }
-        </style>
-        """, unsafe_allow_html=True)
 
     st.divider()
 
     # Export button
-    st.subheader("📤 Export Data")
+    st.subheader("Export Data")
     csv_data = export_to_csv()
     if csv_data:
         st.download_button(
@@ -210,31 +239,31 @@ with st.sidebar:
             mime="text/csv"
         )
     else:
-        st.info("No data to export yet")
+        st.info("No data available for export")
 
     st.divider()
 
     # Quick stats
-    st.subheader("📊 Quick Stats")
+    st.subheader("Statistics")
     history_df = load_history()
     if not history_df.empty:
-        st.metric("Total Days Tracked", len(history_df))
+        st.metric("Days Tracked", len(history_df))
         st.metric("Avg Recovery", f"{int(history_df['recovery'].mean())}%")
         st.metric("Avg Strain", f"{history_df['strain'].mean():.1f}")
 
-st.title("💪 Cheap WHOOP Pro")
-st.caption("No $30/month subscription. Just affordable hardware + advanced analytics.")
+st.title("Cheap WHOOP Pro")
+st.caption("Professional fitness tracking without the subscription.")
 
-# Create expanded tabs
+# Create compact tabs
 tabs = st.tabs([
-    "🏠 Dashboard",
-    "❤️ Heart & Training",
-    "😴 Sleep Analysis",
-    "🏋️ Workouts",
-    "📈 Trends & Analytics",
-    "🏆 Achievements",
-    "📝 Journal",
-    "⚖️ Body Metrics"
+    "Dashboard",
+    "Heart & Training",
+    "Sleep",
+    "Workouts",
+    "Trends",
+    "Achievements",
+    "Journal",
+    "Body Metrics"
 ])
 
 # ============================================================================
@@ -242,7 +271,7 @@ tabs = st.tabs([
 # ============================================================================
 
 with tabs[0]:
-    st.header("📊 Today's Dashboard")
+    st.header("Today's Dashboard")
 
     # Load metrics
     m = get_metrics()
@@ -252,14 +281,14 @@ with tabs[0]:
 
     with col1:
         if m["recovery"] > 66:
-            st.success("🟢 **Ready to Train** - Your body is recovered!")
+            st.success("**Ready to Train** - Your body is recovered")
         elif m["recovery"] > 33:
-            st.warning("🟡 **Moderate Recovery** - Light workout recommended")
+            st.warning("**Moderate Recovery** - Light workout recommended")
         else:
-            st.error("🔴 **Rest Day** - Prioritize recovery today")
+            st.error("**Rest Day** - Prioritize recovery today")
 
     with col2:
-        if st.button("🔄 Refresh Data", use_container_width=True):
+        if st.button("Refresh Data", use_container_width=True):
             with st.spinner("Refreshing..."):
                 generate_xiaomi_data()
                 generate_coospo_data()
@@ -295,12 +324,12 @@ with tabs[0]:
                 combined.to_csv(history_path, index=False)
                 st.cache_data.clear()
 
-            st.success("Data updated!")
+            st.success("Data updated successfully")
             st.rerun()
 
     with col3:
         today = datetime.now().strftime("%m/%d/%Y")
-        st.info(f"📅 {today}")
+        st.info(f"Date: {today}")
 
     st.divider()
 
@@ -321,14 +350,14 @@ with tabs[0]:
     st.divider()
 
     # Strain Coach & Goal
-    st.subheader("🎯 Today's Goal")
+    st.subheader("Today's Training Goal")
 
     strain_goal = m["strain_goal"]
     col1, col2 = st.columns([2, 1])
 
     with col1:
         st.info(f"**Recommended Strain:** {strain_goal['min']}-{strain_goal['max']} ({strain_goal['label']})")
-        st.write(f"💬 **Coach Says:** {m['strain_coach']}")
+        st.write(f"**Coach:** {m['strain_coach']}")
 
         # Progress bar
         progress = min(1.0, m['strain'] / strain_goal['max'])
@@ -338,16 +367,16 @@ with tabs[0]:
     with col2:
         # Hydration reminder
         if m['strain'] > 12:
-            st.warning("💧 **Hydration Alert**\nHigh strain detected. Drink water!")
+            st.warning("**Hydration Alert**\nHigh strain detected. Increase fluid intake.")
         elif m['strain'] > 8:
-            st.info("💧 Stay hydrated throughout the day")
+            st.info("Stay properly hydrated")
 
     st.divider()
 
     # Overtraining Alert
     overtraining = m["overtraining"]
     if overtraining["risk"] in ["high", "moderate"]:
-        st.error(f"⚠️ **Overtraining Alert**: {overtraining['risk'].upper()} risk")
+        st.error(f"**Overtraining Alert**: {overtraining['risk'].upper()} risk")
         for alert in overtraining["alerts"]:
             st.write(f"- {alert}")
         st.write(f"**Recommendation:** {overtraining['recommendation']}")
@@ -356,7 +385,7 @@ with tabs[0]:
     # Rest Day Recommendation
     rest_day = m["rest_day"]
     if rest_day and rest_day["rest_recommended"]:
-        st.warning("🛑 **Rest Day Recommended**")
+        st.warning("**Rest Day Recommended**")
         st.write("Reasons:")
         for reason in rest_day["reasons"]:
             st.write(f"- {reason}")
@@ -365,12 +394,11 @@ with tabs[0]:
     # Recovery Prediction
     recovery_pred = m["recovery_prediction"]
     if recovery_pred:
-        st.subheader("🔮 Tomorrow's Forecast")
+        st.subheader("Tomorrow's Recovery Forecast")
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            pred_color = "🟢" if recovery_pred["predicted_recovery"] > 66 else "🟡" if recovery_pred["predicted_recovery"] > 33 else "🔴"
-            st.metric("Predicted Recovery", f"{pred_color} {recovery_pred['predicted_recovery']}%")
+            st.metric("Predicted Recovery", f"{recovery_pred['predicted_recovery']}%")
 
         with col2:
             st.metric("Confidence", recovery_pred["confidence"].capitalize())
@@ -385,7 +413,7 @@ with tabs[0]:
         st.divider()
 
     # Quick Training Load
-    st.subheader("📊 7-Day Training Load")
+    st.subheader("7-Day Training Load")
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -400,18 +428,18 @@ with tabs[0]:
     achievements = m["achievements"]
     if achievements:
         st.divider()
-        st.subheader("🏆 Recent Achievements")
+        st.subheader("Recent Achievements")
         cols = st.columns(min(4, len(achievements)))
         for i, achievement in enumerate(achievements[:4]):
             with cols[i]:
-                st.info(f"{achievement['icon']} **{achievement['name']}**\n\n{achievement['description']}")
+                st.info(f"**{achievement['name']}**\n\n{achievement['description']}")
 
 # ============================================================================
 # TAB 2: HEART & TRAINING - Detailed heart metrics
 # ============================================================================
 
 with tabs[1]:
-    st.header("❤️ Heart Data & Training")
+    st.header("Heart Data & Training")
 
     m = get_metrics()
 
@@ -460,16 +488,14 @@ with tabs[1]:
     with col2:
         st.metric("RHR", f"{m['rhr']} BPM", help="Lower = better fitness")
     with col3:
-        stress_color = "🟢" if m["stress"] < 4 else "🟡" if m["stress"] < 7 else "🔴"
-        st.metric("Stress", f"{stress_color} {m['stress']}/10")
+        st.metric("Stress", f"{m['stress']}/10")
     with col4:
-        readiness_emoji = "💪" if m["readiness"] > 70 else "😐" if m["readiness"] > 40 else "😴"
-        st.metric("Readiness", f"{readiness_emoji} {m['readiness']}%")
+        st.metric("Readiness", f"{m['readiness']}%")
 
     st.divider()
 
     # VO2 Max
-    st.subheader("🫁 VO2 Max Estimation")
+    st.subheader("VO2 Max Estimation")
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -493,7 +519,7 @@ with tabs[1]:
 
     # SpO2 Trends
     if m["spo2_data"]:
-        st.subheader("🩸 Blood Oxygen (SpO2) Trends")
+        st.subheader("Blood Oxygen (SpO2) Trends")
 
         spo2 = m["spo2_data"]
         col1, col2, col3, col4 = st.columns(4)
@@ -521,17 +547,17 @@ with tabs[1]:
 
         with col2:
             if spo2['alerts']:
-                st.warning("⚠️ **Alerts:**")
+                st.warning("**Alerts:**")
                 for alert in spo2['alerts']:
                     st.write(f"- {alert}")
             else:
-                st.success("✅ All SpO2 readings normal!")
+                st.success("All SpO2 readings normal")
 
         st.divider()
 
     # Heart Rate Zones
     if m["hr_zones"]:
-        st.subheader("🎯 Heart Rate Zones")
+        st.subheader("Heart Rate Zones")
 
         zones = m["hr_zones"]
         zone_names = list(zones.keys())
@@ -560,7 +586,7 @@ with tabs[1]:
 
     # Hourly Strain Breakdown
     if m["hourly_strain"] is not None and not m["hourly_strain"].empty:
-        st.subheader("📊 Hourly Strain Breakdown")
+        st.subheader("Hourly Strain Breakdown")
 
         hourly_df = m["hourly_strain"].reset_index()
 
@@ -578,7 +604,7 @@ with tabs[1]:
         st.divider()
 
     # Live Heart Rate Chart
-    st.subheader("📡 Live Heart Rate - Last Hour")
+    st.subheader("Live Heart Rate - Last Hour")
 
     df = load_merged_data()
 
@@ -634,7 +660,7 @@ with tabs[1]:
 # ============================================================================
 
 with tabs[2]:
-    st.header("😴 Sleep Analysis")
+    st.header("Sleep Analysis")
 
     m = get_metrics()
 
@@ -662,13 +688,13 @@ with tabs[2]:
 
     with col2:
         if m["sleep_score"] >= 80:
-            st.success("🌟 **Excellent Sleep!**")
+            st.success("**Excellent Sleep**")
         elif m["sleep_score"] >= 65:
-            st.info("👍 **Good Sleep**")
+            st.info("**Good Sleep**")
         elif m["sleep_score"] >= 50:
-            st.warning("😐 **Fair Sleep**")
+            st.warning("**Fair Sleep**")
         else:
-            st.error("😴 **Poor Sleep**")
+            st.error("**Poor Sleep**")
 
         st.write(f"**Duration:** {m['sleep_duration']}")
         st.write(f"**Efficiency:** {m['efficiency']}")
@@ -682,7 +708,7 @@ with tabs[2]:
     st.divider()
 
     # Sleep Stages Breakdown
-    st.subheader("📊 Sleep Stages Breakdown")
+    st.subheader("Sleep Stages Breakdown")
 
     col1, col2 = st.columns([2, 1])
 
@@ -714,14 +740,14 @@ with tabs[2]:
 
         # Sleep quality indicators
         if deep_hours >= 1.5 and rem_hours >= 1.5:
-            st.success("✅ Sleep stage targets met!")
+            st.success("Sleep stage targets met")
         else:
-            st.warning("⚠️ Sleep stages below optimal")
+            st.warning("Sleep stages below optimal")
 
     st.divider()
 
     # Sleep Consistency & Recommendations (placeholder for future implementation)
-    st.subheader("🎯 Sleep Insights")
+    st.subheader("Sleep Insights")
 
     col1, col2 = st.columns(2)
 
@@ -734,7 +760,7 @@ with tabs[2]:
     # SpO2 during sleep
     if m["spo2_data"]:
         st.divider()
-        st.subheader("💤 Blood Oxygen During Sleep")
+        st.subheader("Blood Oxygen During Sleep")
         spo2 = m["spo2_data"]
 
         col1, col2, col3 = st.columns(3)
@@ -744,16 +770,16 @@ with tabs[2]:
             st.metric("Lowest SpO2", f"{spo2['min']}%")
         with col3:
             if spo2['min'] < 90:
-                st.error("⚠️ Low oxygen detected")
+                st.error("Low oxygen detected")
             else:
-                st.success("✅ Normal levels")
+                st.success("Normal levels")
 
 # ============================================================================
 # TAB 4: WORKOUTS
 # ============================================================================
 
 with tabs[3]:
-    st.header("🏋️ Workout Analysis")
+    st.header("Workout Analysis")
 
     m = get_metrics()
 
@@ -761,8 +787,8 @@ with tabs[3]:
     workouts = m["workouts"]
 
     if workouts:
-        st.subheader("🔍 Auto-Detected Workouts")
-        st.caption("Workouts detected automatically from elevated heart rate periods")
+        st.subheader("Auto-Detected Workouts")
+        st.caption("Workouts detected from elevated heart rate periods")
 
         for i, workout in enumerate(workouts, 1):
             with st.expander(f"Workout #{i} - {workout['intensity']} Intensity"):
@@ -798,7 +824,7 @@ with tabs[3]:
     st.divider()
 
     # Activity Log Summary
-    st.subheader("📋 Activity Log")
+    st.subheader("Activity Log")
 
     activity_log = load_activity_log()
     if activity_log:
@@ -826,7 +852,7 @@ with tabs[3]:
 # ============================================================================
 
 with tabs[4]:
-    st.header("📈 Trends & Analytics")
+    st.header("Trends & Analytics")
 
     history_df = load_history()
 
@@ -850,9 +876,9 @@ with tabs[4]:
 
         # Weekly Summary Report
         if datetime.now().weekday() == 6:  # Sunday
-            st.info("📅 **Sunday Report Card** - Here's your weekly summary!")
+            st.info("**Weekly Summary** - Your training overview for the week")
 
-        st.subheader("📊 Weekly Strain vs Recovery")
+        st.subheader("Weekly Strain vs Recovery")
 
         if len(filtered_df) >= 7:
             weekly_df = filtered_df.tail(7)
@@ -880,7 +906,7 @@ with tabs[4]:
         st.divider()
 
         # Monthly Trends Comparison
-        st.subheader("📅 Monthly Trends Comparison")
+        st.subheader("Monthly Trends Comparison")
 
         if len(history_df) >= 30:
             # Get last 30 days and previous 30 days
@@ -919,7 +945,7 @@ with tabs[4]:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("❤️ RHR Trend")
+            st.subheader("RHR Trend")
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=filtered_df['date'].astype(str),
@@ -945,14 +971,14 @@ with tabs[4]:
             # Interpretation
             if len(filtered_df) > 1:
                 if z[0] < -0.1:
-                    st.success("📉 RHR is decreasing - fitness improving!")
+                    st.success("RHR decreasing - fitness improving")
                 elif z[0] > 0.1:
-                    st.warning("📈 RHR is increasing - may need more recovery")
+                    st.warning("RHR increasing - may need more recovery")
                 else:
-                    st.info("➡️ RHR is stable")
+                    st.info("RHR is stable")
 
         with col2:
-            st.subheader("💚 HRV Trend")
+            st.subheader("HRV Trend")
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=filtered_df['date'].astype(str),
@@ -978,16 +1004,16 @@ with tabs[4]:
             # Interpretation
             if len(filtered_df) > 1:
                 if z[0] > 0.5:
-                    st.success("📈 HRV is increasing - great adaptation!")
+                    st.success("HRV increasing - great adaptation")
                 elif z[0] < -0.5:
-                    st.warning("📉 HRV is decreasing - may be overtrained")
+                    st.warning("HRV decreasing - may be overtrained")
                 else:
-                    st.info("➡️ HRV is stable")
+                    st.info("HRV is stable")
 
         st.divider()
 
         # Individual metric selector
-        st.subheader("🎯 Individual Metric Analysis")
+        st.subheader("Individual Metric Analysis")
 
         metric = st.selectbox(
             "Select Metric",
@@ -1042,12 +1068,12 @@ with tabs[4]:
 # ============================================================================
 
 with tabs[5]:
-    st.header("🏆 Achievements & Personal Records")
+    st.header("Achievements & Personal Records")
 
     m = get_metrics()
 
     # Achievements
-    st.subheader("🎖️ Your Achievements")
+    st.subheader("Your Achievements")
 
     achievements = m["achievements"]
 
@@ -1055,14 +1081,14 @@ with tabs[5]:
         cols = st.columns(3)
         for i, achievement in enumerate(achievements):
             with cols[i % 3]:
-                st.success(f"{achievement['icon']} **{achievement['name']}**\n\n{achievement['description']}")
+                st.success(f"**{achievement['name']}**\n\n{achievement['description']}")
     else:
-        st.info("Keep tracking to unlock achievements!")
+        st.info("Keep tracking to unlock achievements")
 
     st.divider()
 
     # Personal Records
-    st.subheader("📊 Personal Records")
+    st.subheader("Personal Records")
 
     records = m["personal_records"]
 
@@ -1070,7 +1096,7 @@ with tabs[5]:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.write("**💪 Performance Records:**")
+            st.write("**Performance Records:**")
             st.metric("Best Recovery", f"{records.get('best_recovery', 'N/A')}%")
             st.caption(f"Date: {records.get('best_recovery_date', 'N/A')}")
 
@@ -1081,7 +1107,7 @@ with tabs[5]:
             st.caption(f"Date: {records.get('lowest_rhr_date', 'N/A')}")
 
         with col2:
-            st.write("**🏋️ Activity Records:**")
+            st.write("**Activity Records:**")
             st.metric("Max Strain", f"{records.get('max_strain', 'N/A')}")
             st.caption(f"Date: {records.get('max_strain_date', 'N/A')}")
 
@@ -1096,14 +1122,14 @@ with tabs[5]:
 # ============================================================================
 
 with tabs[6]:
-    st.header("📝 Daily Journal")
+    st.header("Daily Journal")
 
     # Load existing journals
     journal = load_journal()
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     # Today's entry
-    st.subheader("✍️ Today's Entry")
+    st.subheader("Today's Entry")
 
     existing_entry = journal.get(today_str, "")
 
@@ -1118,12 +1144,12 @@ with tabs[6]:
         )
 
     with col2:
-        if st.button("💾 Save Entry", use_container_width=True):
+        if st.button("Save Entry", use_container_width=True):
             journal[today_str] = journal_text
             save_journal(journal)
-            st.success("Saved!")
+            st.success("Saved")
 
-        if st.button("🗑️ Clear", use_container_width=True):
+        if st.button("Clear", use_container_width=True):
             if today_str in journal:
                 del journal[today_str]
                 save_journal(journal)
@@ -1132,9 +1158,9 @@ with tabs[6]:
     st.divider()
 
     # Cycle Tracking (for menstrual cycle)
-    st.subheader("📅 Cycle Tracking")
+    st.subheader("Cycle Tracking")
 
-    with st.expander("🩸 Menstrual Cycle Tracker"):
+    with st.expander("Menstrual Cycle Tracker"):
         st.write("Track your cycle to see how it affects your training and recovery.")
 
         col1, col2, col3 = st.columns(3)
@@ -1162,7 +1188,7 @@ with tabs[6]:
     st.divider()
 
     # Previous entries
-    st.subheader("📖 Previous Entries")
+    st.subheader("Previous Entries")
 
     # Filter out cycle entries and sort by date (most recent first)
     regular_entries = {k: v for k, v in journal.items() if not k.startswith("cycle_")}
@@ -1171,17 +1197,17 @@ with tabs[6]:
     if sorted_entries:
         for date_str, entry in sorted_entries[:7]:  # Show last 7 entries
             if entry:  # Only show non-empty entries
-                with st.expander(f"📅 {date_str}"):
+                with st.expander(f"{date_str}"):
                     st.write(entry)
     else:
-        st.info("No previous entries yet. Start journaling today!")
+        st.info("No previous entries yet")
 
 # ============================================================================
 # TAB 8: BODY METRICS
 # ============================================================================
 
 with tabs[7]:
-    st.header("⚖️ Body Metrics & Metabolism")
+    st.header("Body Metrics & Metabolism")
 
     # Load existing profile
     profile = load_user_profile()
@@ -1283,7 +1309,7 @@ with tabs[7]:
                 )
                 avg_steps = None
 
-        submitted = st.form_submit_button("💾 Calculate & Save")
+        submitted = st.form_submit_button("Calculate & Save")
 
     # Save Profile & Update History
     if submitted:
@@ -1343,7 +1369,7 @@ with tabs[7]:
             new_entry.to_csv(history_path, index=False)
 
         st.cache_data.clear()
-        st.success("✅ Profile saved!")
+        st.success("Profile saved successfully")
         st.rerun()
 
     # Display Results
@@ -1355,7 +1381,7 @@ with tabs[7]:
         bmr = calculate_bmr(profile["weight_kg"], profile["height_cm"], profile["age"], profile["sex"])
         tdee = calculate_tdee(bmr, profile.get("activity_minutes_per_week"), profile.get("avg_steps_per_day"))
 
-        st.subheader("📊 Your Results")
+        st.subheader("Your Results")
 
         col1, col2, col3 = st.columns(3)
 
@@ -1383,8 +1409,8 @@ with tabs[7]:
         with col2:
             st.metric("BMR", f"{int(bmr)} cal/day", help="Calories at complete rest")
             st.write("")
-            st.caption(f"💡 Weight: **{profile['weight_kg']:.1f} kg** / **{kg_to_lbs(profile['weight_kg']):.1f} lbs**")
-            st.caption(f"💡 Height: **{profile['height_cm']:.1f} cm** / **{cm_to_inches(profile['height_cm']):.1f} in**")
+            st.caption(f"Weight: **{profile['weight_kg']:.1f} kg** / **{kg_to_lbs(profile['weight_kg']):.1f} lbs**")
+            st.caption(f"Height: **{profile['height_cm']:.1f} cm** / **{cm_to_inches(profile['height_cm']):.1f} in**")
 
         with col3:
             st.metric("TDEE", f"{int(tdee)} cal/day", help="Total daily calories burned")
@@ -1393,7 +1419,7 @@ with tabs[7]:
 
         # Calorie Breakdown
         st.divider()
-        st.subheader("🔥 Calorie Breakdown")
+        st.subheader("Calorie Breakdown")
 
         col1, col2 = st.columns(2)
 
@@ -1426,7 +1452,7 @@ with tabs[7]:
                     level = "Very Active"
                 else:
                     level = "Extremely Active"
-                st.info(f"📱 **{level}** ({steps:,} steps/day)")
+                st.info(f"**{level}** ({steps:,} steps/day)")
 
         # Weight Tracking Chart
         history_df = load_history()
@@ -1435,7 +1461,7 @@ with tabs[7]:
 
             if len(weight_data) > 1:
                 st.divider()
-                st.subheader("📉 Weight Trend")
+                st.subheader("Weight Trend")
 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
@@ -1460,12 +1486,12 @@ with tabs[7]:
                 with col3:
                     st.metric("Change", f"{weight_change:+.1f} kg ({kg_to_lbs(abs(weight_change)):+.1f} lbs)")
     else:
-        st.info("👆 Fill out the form above to calculate your metrics!")
+        st.info("Fill out the form above to calculate your metrics")
 
 # ============================================================================
 # FOOTER
 # ============================================================================
 
 st.divider()
-st.caption("Built with ❤️ using Streamlit • Cheap WHOOP Pro v2.0")
-st.caption("💡 Tip: Track daily for best insights. Data refreshes automatically.")
+st.caption("Cheap WHOOP Pro v2.0 - Professional fitness tracking")
+st.caption("Track daily for optimal insights and accuracy")
