@@ -138,12 +138,17 @@ def get_bmi_category(bmi):
 # PAGE SETUP
 # ============================================================================
 
-st.set_page_config(page_title="Cheap WHOOP", layout="centered")
-st.title("💪 Cheap WHOOP")
-st.caption("No $30/month. Just $75 hardware + your code.")
+st.set_page_config(
+    page_title="Cheap WHOOP",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+st.title("Cheap WHOOP")
+st.caption("Professional fitness tracking analytics")
 
 # Create tabs for different sections
-tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 History", "⚖️ BMI & Metabolism"])
+tab1, tab2, tab3, tab4 = st.tabs(["Heart Data", "Sleep", "History", "Metabolism"])
 
 # ============================================================================
 # TAB 1: HEART DATA & RECOVERY
@@ -152,22 +157,74 @@ tab1, tab2, tab3, tab4 = st.tabs(["❤️ Heart Data", "😴 Sleep", "📈 Histo
 with tab1:
     # Load current metrics
     m = get_metrics()
-    
+
     # Display status banner based on recovery score
     if m["recovery"] > 66:
-        st.success("🟢 **Ready to Train** - Your body is recovered!")
+        st.success("**READY TO TRAIN** — Your body is recovered")
     elif m["recovery"] > 33:
-        st.warning("🟡 **Moderate Recovery** - Light workout recommended")
+        st.warning("**MODERATE RECOVERY** — Light activity recommended")
     else:
-        st.error("🔴 **Rest Day** - Prioritize recovery today")
+        st.error("**REST DAY** — Prioritize recovery today")
     
     # ========================================================================
     # DATA REFRESH BUTTON
     # ========================================================================
-    if st.button("🔄 Refresh Data"):
-        with st.spinner("Refreshing data..."):
-            # Generate new mock data from devices
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        refresh_daily = st.button("↻ Refresh Daily Data", type="primary")
+    with col_btn2:
+        log_workout = st.button("+ Log Workout", type="secondary")
+
+    if refresh_daily:
+        with st.spinner("Refreshing daily data..."):
+            # Generate new mock data from devices (daily tracking only)
             generate_xiaomi_data()
+            merge_data()
+
+            # Reload merged data
+            daily_df = pd.read_csv("data/merged/daily_merged.csv")
+            m = get_metrics()
+
+            # Get current weight from profile
+            profile = load_user_profile()
+            current_weight = profile["weight_kg"] if profile else None
+
+            # Create new history entry for today
+            history_path = "data/history.csv"
+            history_df = pd.DataFrame({
+                "date": [datetime.now().strftime("%Y-%m-%d")],
+                "recovery": [m["recovery"]],
+                "strain": [m["strain"]],
+                "rhr": [m["rhr"]],
+                "hrv": [m["hrv"]],
+                "stress": [m["stress"]],
+                "readiness": [m["readiness"]],
+                "steps": [m["steps"]],
+                "weight_kg": [current_weight]
+            })
+
+            # Append to existing history or create new file
+            if os.path.exists(history_path):
+                old_history = pd.read_csv(history_path)
+                combined = pd.concat([old_history, history_df])
+                # Remove duplicate dates, keeping most recent
+                combined["date"] = pd.to_datetime(combined["date"]).dt.date
+                combined = combined.drop_duplicates(subset="date", keep="last")
+            else:
+                combined = history_df
+
+            # Save updated history
+            combined.to_csv(history_path, index=False)
+
+            # Clear cached data to show new values
+            st.cache_data.clear()
+
+        st.success("Daily data updated and added to history")
+        st.rerun()
+
+    if log_workout:
+        with st.spinner("Logging workout..."):
+            # Generate workout data from chest strap
             generate_coospo_data()
             merge_data()
 
@@ -205,11 +262,11 @@ with tab1:
 
             # Save updated history
             combined.to_csv(history_path, index=False)
-            
+
             # Clear cached data to show new values
             st.cache_data.clear()
-            
-        st.success("Data updated and added to history!")
+
+        st.success("Workout logged successfully")
         st.rerun()
 
     # ========================================================================
@@ -287,7 +344,7 @@ with tab1:
     # STEP TRACKING SECTION
     # ========================================================================
     st.divider()
-    st.subheader("🚶 Daily Activity")
+    st.subheader("Daily Activity")
     
     col1, col2, col3 = st.columns(3)
     
@@ -308,78 +365,81 @@ with tab1:
         step_calories = m["steps"] * 0.04
         st.metric("Active Calories", f"{int(step_calories)} cal", help="From steps only")
     
-    with st.expander("❓ How are steps used in Strain?"):
+    with st.expander("How are steps used in Strain?"):
         st.write("""
         **Steps contribute to overall Strain:**
-        
+
         - 10,000 steps ≈ 3 strain points
         - Combined with heart rate data
-        
+
         **Example:**
-        - Hard workout (HR strain: 12) + 8,000 steps (2.4) = **Total: 14.4**
+        - Hard activity (HR strain: 12) + 8,000 steps (2.4) = **Total: 14.4**
         """)
     
     # ========================================================================
     # ADVANCED METRICS: STRESS, READINESS, BREATHING
     # ========================================================================
     st.divider()
-    st.subheader("🧠 Advanced Metrics")
-    
+    st.subheader("Advanced Metrics")
+
     col1, col2, col3 = st.columns(3)
-    
+
     # STRESS LEVEL
     with col1:
-        stress_color = "🟢" if m["stress"] < 4 else "🟡" if m["stress"] < 7 else "🔴"
-        st.metric("Stress Level", f"{stress_color} {m['stress']}/10", 
+        stress_label = "Low" if m["stress"] < 4 else "Moderate" if m["stress"] < 7 else "High"
+        st.metric("Stress Level", f"{m['stress']}/10",
+                  delta=stress_label, delta_color="inverse" if m["stress"] < 4 else "off",
                   help="Based on HR and HRV patterns")
-        
-        with st.expander("❓ What is Stress?"):
+
+        with st.expander("What is Stress?"):
             st.write("""
             **Stress = nervous system tension RIGHT NOW**
-            
+
             NOT the same as Strain (physical work).
-            
+
             **Scale:**
-            - 🟢 0-3: Relaxed, calm
-            - 🟡 4-6: Normal daily stress
-            - 🔴 7-10: High stress (overtraining/anxiety)
+            - 0-3: Relaxed, calm
+            - 4-6: Normal daily stress
+            - 7-10: High stress (overtraining/anxiety)
             """)
     
     # TRAINING READINESS
     with col2:
-        readiness_emoji = "💪" if m["readiness"] > 70 else "😐" if m["readiness"] > 40 else "😴"
-        st.metric("Training Readiness", f"{readiness_emoji} {m['readiness']}%",
+        readiness_status = "High" if m["readiness"] > 70 else "Moderate" if m["readiness"] > 40 else "Low"
+        st.metric("Training Readiness", f"{m['readiness']}%",
+                  delta=readiness_status,
                   help="Should you train hard today?")
-        
-        with st.expander("❓ What is Readiness?"):
+
+        with st.expander("What is Readiness?"):
             st.write("""
-            **Should you work out hard TODAY?**
-            
+            **Should you train hard TODAY?**
+
             Combines:
             - 40% Recovery
             - 25% HRV
             - 20% Sleep quality
             - 15% Resting HR
-            
+
             **Scale:**
-            - 💪 70-100: GO HARD
-            - 😐 40-69: Light workout
-            - 😴 0-39: REST DAY
+            - 70-100: High intensity recommended
+            - 40-69: Light activity only
+            - 0-39: Rest day recommended
             """)
     
     # RESPIRATORY RATE
     with col3:
         if m["respiratory_rate"]:
-            resp_status = "Normal" if 12 <= m["respiratory_rate"] <= 20 else "Check"
+            resp_status = "Normal" if 12 <= m["respiratory_rate"] <= 20 else "Abnormal"
             st.metric("Breathing Rate", f"{m['respiratory_rate']} /min",
-                      delta=resp_status, help="Normal: 12-20/min")
-            
-            with st.expander("❓ What is Breathing Rate?"):
+                      delta=resp_status, delta_color="normal" if resp_status == "Normal" else "inverse",
+                      help="Normal: 12-20/min")
+
+            with st.expander("What is Breathing Rate?"):
                 st.write("""
                 **Breaths per minute at rest**
-                
+
                 Estimated from heart rate variability patterns.
-                
+
                 **Normal:** 12-20 breaths/min
                 - 8-12: Very relaxed
                 - 20-30: Elevated (stress/exercise)
@@ -389,45 +449,45 @@ with tab1:
             st.metric("Breathing Rate", "N/A", help="Need more data")
     
     # Quick comparison guide
-    with st.expander("🤔 Strain vs Stress? Recovery vs Readiness?"):
+    with st.expander("Metric Comparison Guide"):
         st.write("""
         | Metric | Measures | Question |
         |--------|----------|----------|
         | **Strain** | Physical work | "How hard did I work?" |
         | **Stress** | Nervous tension | "How tense is my body?" |
         | **Recovery** | Sleep quality | "Did I recover overnight?" |
-        | **Readiness** | Training decision | "Should I work out?" |
+        | **Readiness** | Training decision | "Should I train hard?" |
         """)
     
     # ========================================================================
     # BASELINE COMPARISON
     # ========================================================================
     st.divider()
-    st.subheader("📊 Today vs. Your Baseline")
-    
+    st.subheader("Baseline Comparison")
+
     history_df = load_history()
     if len(history_df) >= 7:
         # Calculate 30-day averages
         recent = history_df.tail(30)
         avg_hrv = recent["hrv"].mean()
         avg_rhr = recent["rhr"].mean()
-        
+
         col1, col2 = st.columns(2)
         with col1:
             diff_hrv = m["hrv"] - avg_hrv
             st.metric("HRV vs Baseline", f"{m['hrv']} ms", delta=f"{diff_hrv:+.1f} ms")
         with col2:
             diff_rhr = m["rhr"] - avg_rhr
-            st.metric("Resting HR vs Baseline", f"{m['rhr']} BPM", 
+            st.metric("Resting HR vs Baseline", f"{m['rhr']} BPM",
                       delta=f"{diff_rhr:+.1f} BPM", delta_color="inverse")
     else:
-        st.info("📅 Track for 7+ days to see your baseline comparison")
+        st.info("Track for 7+ days to see your baseline comparison")
     
     # ========================================================================
     # LIVE HEART RATE CHART
     # ========================================================================
     st.divider()
-    st.subheader("📡 Live View - Last Hour")
+    st.subheader("Heart Rate — Last Hour")
     
     df = load_merged_data()
     
@@ -492,16 +552,16 @@ with tab1:
             with col3:
                 st.metric("Max (Last Hour)", f"{last_hour['bpm'].max()} BPM")
         else:
-            st.info("No data in the last hour. Click refresh to generate new data!")
+            st.info("No data in the last hour. Click 'Refresh Daily Data' to generate new data")
     else:
-        st.info("No data available. Click refresh to start tracking!")
+        st.info("No data available. Click 'Refresh Daily Data' to start tracking")
 
 # ============================================================================
 # TAB 2: SLEEP ANALYSIS
 # ============================================================================
 
 with tab2:
-    st.subheader("😴 Sleep Analysis")
+    st.subheader("Sleep Analysis")
     m = get_metrics()
 
     # Display sleep metrics in table format
@@ -528,7 +588,7 @@ with tab2:
 # ============================================================================
 
 with tab3:
-    st.subheader("📈 History Trends")
+    st.subheader("Historical Trends")
     
     history_df = load_history()
     
@@ -559,8 +619,8 @@ with tab3:
         # Special handling for weight (show both units)
         if metric == "weight_kg":
             if "weight_kg" not in daily.columns:
-                st.warning("⚠️ Weight tracking not available yet.")
-                st.info("Go to **BMI & Metabolism** tab → Save profile → Refresh data")
+                st.warning("Weight tracking not available yet.")
+                st.info("Go to **Metabolism** tab → Save profile → Refresh data")
             else:
                 daily_with_weight = daily[daily["weight_kg"].notna()]
                 
@@ -631,14 +691,14 @@ with tab3:
 
             st.plotly_chart(fig, use_container_width=True)
     else:
-        st.write("No history yet. Refresh in the Heart tab to start tracking.")
+        st.write("No history yet. Use 'Refresh Daily Data' in the Heart Data tab to start tracking")
 
 # ============================================================================
 # TAB 4: BMI & METABOLISM CALCULATOR
 # ============================================================================
 
 with tab4:
-    st.subheader("⚖️ Body Metrics & Metabolism Calculator")
+    st.subheader("Body Metrics & Metabolism")
     
     # Load existing profile
     profile = load_user_profile()
@@ -747,7 +807,7 @@ with tab4:
                 )
                 avg_steps = None
         
-        submitted = st.form_submit_button("💾 Calculate & Save")
+        submitted = st.form_submit_button("Calculate & Save", type="primary")
     
     # ========================================================================
     # SAVE PROFILE & UPDATE HISTORY
@@ -780,7 +840,7 @@ with tab4:
                 # Update existing entry
                 existing_history.loc[existing_history["date"] == today_date, "weight_kg"] = weight_kg
                 existing_history.to_csv(history_path, index=False)
-                st.success("✅ Profile saved and weight updated!")
+                st.success("Profile saved and weight updated")
             else:
                 # Create new entry
                 new_entry = pd.DataFrame({
@@ -796,7 +856,7 @@ with tab4:
                 })
                 combined = pd.concat([existing_history, new_entry])
                 combined.to_csv(history_path, index=False)
-                st.success("✅ Profile saved and logged to history!")
+                st.success("Profile saved and logged to history")
         else:
             # Create new history file
             new_entry = pd.DataFrame({
@@ -811,7 +871,7 @@ with tab4:
                 "weight_kg": [weight_kg]
             })
             new_entry.to_csv(history_path, index=False)
-            st.success("✅ Profile saved and history started!")
+            st.success("Profile saved and history started")
         
         st.cache_data.clear()
         st.rerun()
@@ -828,7 +888,7 @@ with tab4:
         bmr = calculate_bmr(profile["weight_kg"], profile["height_cm"], profile["age"], profile["sex"])
         tdee = calculate_tdee(bmr, profile.get("activity_minutes_per_week"), profile.get("avg_steps_per_day"))
         
-        st.subheader("📊 Your Results")
+        st.subheader("Your Results")
         
         col1, col2, col3 = st.columns(3)
         
@@ -858,8 +918,8 @@ with tab4:
         with col2:
             st.metric("BMR", f"{int(bmr)} cal/day", help="Calories at complete rest")
             st.write("")
-            st.caption(f"💡 Weight: **{profile['weight_kg']:.1f} kg** / **{kg_to_lbs(profile['weight_kg']):.1f} lbs**")
-            st.caption(f"💡 Height: **{profile['height_cm']:.1f} cm** / **{cm_to_inches(profile['height_cm']):.1f} in**")
+            st.caption(f"Weight: **{profile['weight_kg']:.1f} kg** / **{kg_to_lbs(profile['weight_kg']):.1f} lbs**")
+            st.caption(f"Height: **{profile['height_cm']:.1f} cm** / **{cm_to_inches(profile['height_cm']):.1f} in**")
         
         # TDEE Display
         with col3:
@@ -871,7 +931,7 @@ with tab4:
         # CALORIE BREAKDOWN
         # ====================================================================
         st.divider()
-        st.subheader("🔥 Calorie Breakdown")
+        st.subheader("Calorie Breakdown")
         
         col1, col2 = st.columns(2)
         
@@ -905,31 +965,31 @@ with tab4:
                     level = "Very Active"
                 else:
                     level = "Extremely Active"
-                st.info(f"📱 **{level}** ({steps:,} steps/day)")
+                st.info(f"Activity Level: **{level}** ({steps:,} steps/day)")
         
         # Educational info
-        with st.expander("ℹ️ Understanding These Metrics"):
+        with st.expander("Understanding These Metrics"):
             st.write("""
             **BMI:** Height/weight ratio. Not perfect (doesn't account for muscle).
             - Underweight: < 18.5
             - Normal: 18.5-24.9
             - Overweight: 25-29.9
             - Obese: ≥ 30
-            
+
             **BMR:** Calories burned at rest (Mifflin-St Jeor equation).
-            
+
             **TDEE:** Total daily burn including activity.
-            
+
             **Weight Math:**
             - 1 kg fat = ~7,700 calories
             - 500 cal/day deficit = 0.5 kg loss/week
             """)
-        
+
         # ====================================================================
         # TRAINING INSIGHTS
         # ====================================================================
         st.divider()
-        st.subheader("💡 Training Insights")
+        st.subheader("Training Insights")
         
         m = get_metrics()
         
@@ -943,10 +1003,10 @@ with tab4:
         with col2:
             st.write(f"**Training Readiness:** {m['readiness']}%")
             if m['readiness'] > 70:
-                st.success("✅ Ready for hard workout!")
+                st.success("Ready for high intensity training")
             elif m['readiness'] > 40:
-                st.warning("⚠️ Light workout only")
+                st.warning("Light activity recommended")
             else:
-                st.error("🛑 Rest day - focus on recovery")
+                st.error("Rest day — focus on recovery")
     else:
-        st.info("👆 Fill out the form above to calculate your metrics!")
+        st.info("Fill out the form above to calculate your metrics")
