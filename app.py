@@ -605,15 +605,18 @@ with tabs[1]:
         st.subheader("Hourly Strain Breakdown")
 
         hourly_df = m["hourly_strain"].reset_index()
-        hourly_df.columns = ['timestamp', 'strain']
+
+        # Get the column names (first is timestamp, second is strain values)
+        timestamp_col = hourly_df.columns[0]
+        strain_col = hourly_df.columns[1]
 
         # Format hours as readable time (12 AM, 1 PM, etc.)
-        hourly_df['hour_label'] = hourly_df['timestamp'].dt.strftime('%I %p').str.lstrip('0')
+        hourly_df['hour_label'] = pd.to_datetime(hourly_df[timestamp_col]).dt.strftime('%I %p').str.lstrip('0')
 
         fig = go.Figure(data=[
             go.Bar(
                 x=hourly_df['hour_label'],
-                y=hourly_df['strain'],
+                y=hourly_df[strain_col],
                 marker_color='cyan',
                 hovertemplate='<b>%{x}</b><br>Strain: %{y:.2f}<extra></extra>'
             )
