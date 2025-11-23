@@ -14,6 +14,8 @@ import pandas as pd
 import numpy as np
 from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
+from pull_zepp import ZeppAPI, pull_zepp_data
+from import_manual import import_and_save
 from merge import merge_data
 import json
 import io
@@ -228,6 +230,88 @@ with st.sidebar:
 
     st.divider()
 
+    # Data Source Configuration
+    st.subheader("Data Source")
+
+    # Initialize session state for data source
+    if 'data_source' not in st.session_state:
+        st.session_state.data_source = "mock"
+
+    data_source_options = {
+        "Mock Data (Demo)": "mock",
+        "Zepp/Mi Fit API": "zepp",
+        "Manual Upload": "upload"
+    }
+
+    selected_source = st.radio(
+        "Select data source:",
+        list(data_source_options.keys()),
+        index=list(data_source_options.values()).index(st.session_state.data_source)
+    )
+
+    st.session_state.data_source = data_source_options[selected_source]
+
+    # Zepp API Login
+    if st.session_state.data_source == "zepp":
+        st.write("**Zepp/Mi Fit Login:**")
+
+        # Check if already authenticated
+        zepp_api = ZeppAPI()
+        if zepp_api.is_authenticated():
+            st.success("✅ Connected to Zepp")
+            if st.button("Disconnect"):
+                os.remove("data/zepp_credentials.json")
+                st.rerun()
+        else:
+            with st.form("zepp_login"):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                submit = st.form_submit_button("Login")
+
+                if submit:
+                    if email and password:
+                        with st.spinner("Logging in..."):
+                            zepp_api = ZeppAPI()
+                            if zepp_api.login(email, password):
+                                st.success("Login successful!")
+                                st.rerun()
+                            else:
+                                st.error("Login failed. Check your credentials.")
+                    else:
+                        st.warning("Please enter email and password")
+
+    # Manual Upload
+    elif st.session_state.data_source == "upload":
+        st.write("**Upload Data File:**")
+        st.caption("Supports: CSV, JSON, XML (Apple Health)")
+
+        uploaded_file = st.file_uploader(
+            "Choose a file",
+            type=["csv", "json", "xml"],
+            help="Export data from your Zepp/Mi Fit app and upload here"
+        )
+
+        if uploaded_file is not None:
+            if st.button("Import File"):
+                with st.spinner("Importing..."):
+                    # Save uploaded file temporarily
+                    temp_path = f"data/temp_upload{os.path.splitext(uploaded_file.name)[1]}"
+                    os.makedirs("data", exist_ok=True)
+
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    # Import the file
+                    if import_and_save(temp_path):
+                        merge_data()
+                        st.success("File imported successfully!")
+                        os.remove(temp_path)
+                        st.rerun()
+                    else:
+                        st.error("Failed to import file")
+
+    st.divider()
+
     # Export button
     st.subheader("Export Data")
     csv_data = export_to_csv()
@@ -290,8 +374,22 @@ with tabs[0]:
     with col2:
         if st.button("Refresh Data", use_container_width=True):
             with st.spinner("Refreshing..."):
-                generate_xiaomi_data()
-                generate_coospo_data()
+                # Use selected data source
+                if st.session_state.data_source == "zepp":
+                    # Pull from Zepp API
+                    zepp_api = ZeppAPI()
+                    if zepp_api.is_authenticated():
+                        zepp_api.get_all_data()
+                        st.success("Data synced from Zepp!")
+                    else:
+                        st.error("Not connected to Zepp. Please login in Settings.")
+                elif st.session_state.data_source == "upload":
+                    st.info("Upload a file in the Settings sidebar to import data")
+                else:
+                    # Mock data (demo mode)
+                    generate_xiaomi_data()
+                    generate_coospo_data()
+
                 merge_data()
 
                 # Update history
