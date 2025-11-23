@@ -337,15 +337,20 @@ with tabs[0]:
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        st.metric("Recovery", f"{m['recovery']}%", help="How well you recovered overnight")
+        st.metric("Recovery", f"{m['recovery']}%",
+                 help="Recovery Score (0-100%): Calculated from HRV and RHR overnight data. Formula: (HRV/80) × 100 × (60/RHR). Higher scores (67-100%) indicate full recovery and readiness for intense training. Moderate scores (34-66%) suggest light activity. Low scores (0-33%) indicate need for rest.")
     with col2:
-        st.metric("Strain", f"{m['strain']:.1f}", help="Today's cardiovascular load (0-21)")
+        st.metric("Strain", f"{m['strain']:.1f}",
+                 help="Cardiovascular Strain (0-21 scale): Combines heart rate elevation above resting baseline and daily step count. Calculated from cumulative heart rate excess above RHR + step-based component (10,000 steps ≈ 3 strain points). 0-7: Light day, 7-14: Moderate activity, 14-21: Hard training.")
     with col3:
-        st.metric("HRV", f"{m['hrv']} ms", help="Heart Rate Variability")
+        st.metric("HRV", f"{m['hrv']} ms",
+                 help="Heart Rate Variability (RMSSD method): Measures beat-to-beat variation in heart rate using R-R intervals. Calculated as root mean square of successive differences between heartbeats. Higher values (50-80+ ms) indicate better recovery, stress adaptation, and cardiovascular fitness. Lower values may indicate fatigue, stress, or overtraining.")
     with col4:
-        st.metric("RHR", f"{m['rhr']} BPM", help="Resting Heart Rate")
+        st.metric("RHR", f"{m['rhr']} BPM",
+                 help="Resting Heart Rate: Calculated from the lowest 5% of heart rate readings during nighttime hours (12 AM - 6 AM). Lower values (40-60 BPM for athletes, 60-100 for general population) indicate better cardiovascular fitness. Trends over time are more important than single values.")
     with col5:
-        st.metric("Sleep Score", f"{m['sleep_score']}/100", help="Sleep Performance Score")
+        st.metric("Sleep Score", f"{m['sleep_score']}/100",
+                 help="Sleep Performance Score (0-100): Weighted combination of sleep duration (40%), deep sleep quality (30%), and REM sleep quality (30%). Duration scored against 8-hour target, deep sleep against 2-hour target, REM against 2-hour target. Scores 80+: Excellent, 65-79: Good, 50-64: Fair, <50: Poor.")
 
     st.divider()
 
@@ -484,13 +489,17 @@ with tabs[1]:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("HRV", f"{m['hrv']} ms", help="Higher = better recovery")
+        st.metric("HRV", f"{m['hrv']} ms",
+                 help="Heart Rate Variability (RMSSD): Root mean square of successive R-R interval differences. Higher values indicate better parasympathetic nervous system activity, recovery capacity, and stress resilience. Typical ranges: 20-80ms (highly individual).")
     with col2:
-        st.metric("RHR", f"{m['rhr']} BPM", help="Lower = better fitness")
+        st.metric("RHR", f"{m['rhr']} BPM",
+                 help="Resting Heart Rate: Lowest 5% of nighttime heart rate (12 AM-6 AM). Lower values indicate better cardiovascular fitness and efficiency. Athletes: 40-60 BPM, General: 60-100 BPM. Improving fitness typically lowers RHR over time.")
     with col3:
-        st.metric("Stress", f"{m['stress']}/10")
+        st.metric("Stress", f"{m['stress']}/10",
+                 help="Stress Score (0-10): Calculated from hourly heart rate and HRV patterns. High HR + low HRV variation = higher stress. This measures nervous system tension (sympathetic activation), not physical workload. Useful for identifying mental/emotional stress throughout the day.")
     with col4:
-        st.metric("Readiness", f"{m['readiness']}%")
+        st.metric("Readiness", f"{m['readiness']}%",
+                 help="Training Readiness (0-100%): Weighted combination of HRV (25%), RHR (15%), Recovery (40% - most important), and Sleep Efficiency (20%). Answers 'Should I work out hard today?' Higher scores indicate you're physiologically prepared for intense training.")
 
     st.divider()
 
@@ -499,7 +508,8 @@ with tabs[1]:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("VO2 Max", f"{m['vo2_max']} ml/kg/min")
+        st.metric("VO2 Max", f"{m['vo2_max']} ml/kg/min",
+                 help="VO2 Max Estimation: Maximum oxygen uptake capacity during intense exercise. Estimated from RHR and age using formula: 15.3 × (max HR / RHR). Higher values indicate better aerobic fitness and endurance capacity. Elite athletes: 60-80+, Good: 45-60, Average: 35-45, Below Average: <35.")
 
     with col2:
         if m['vo2_max'] > 55:
@@ -510,10 +520,12 @@ with tabs[1]:
             category = "Average"
         else:
             category = "Below Average"
-        st.metric("Category", category)
+        st.metric("Category", category,
+                 help="VO2 Max Category: Fitness classification based on estimated oxygen uptake capacity. Excellent (>55): Elite endurance, Good (45-55): High fitness, Average (35-45): Moderate fitness, Below Average (<35): Needs improvement.")
 
     with col3:
-        st.metric("Respiratory Rate", f"{m['respiratory_rate']}/min" if m['respiratory_rate'] else "N/A")
+        st.metric("Respiratory Rate", f"{m['respiratory_rate']}/min" if m['respiratory_rate'] else "N/A",
+                 help="Respiratory Rate Estimation: Breaths per minute estimated from heart rate variability patterns (respiratory sinus arrhythmia - RSA). Breathing causes regular oscillations in heart rate. Normal resting range: 12-20 breaths/min. Lower rates often indicate better cardiovascular fitness and relaxation.")
 
     st.divider()
 
@@ -525,13 +537,17 @@ with tabs[1]:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("Average", f"{spo2['avg']}%")
+            st.metric("Average", f"{spo2['avg']}%",
+                     help="Average Blood Oxygen Saturation: Mean SpO2 level across all readings. Normal healthy range: 95-100%. Values below 95% may indicate respiratory issues. Consistent readings 95%+ indicate good oxygen delivery to tissues.")
         with col2:
-            st.metric("Minimum", f"{spo2['min']}%")
+            st.metric("Minimum", f"{spo2['min']}%",
+                     help="Minimum SpO2: Lowest blood oxygen reading detected. Critical threshold: <90% requires medical attention. Occasional drops to 90-94% during deep sleep can be normal, but persistent low values may indicate sleep apnea or other respiratory conditions.")
         with col3:
-            st.metric("Maximum", f"{spo2['max']}%")
+            st.metric("Maximum", f"{spo2['max']}%",
+                     help="Maximum SpO2: Highest blood oxygen reading. Normal maximum is typically 98-100%. Healthy individuals usually maintain high saturation (97-100%) during most of the day and night.")
         with col4:
-            st.metric("Excellent %", f"{spo2['excellent_pct']}%", help="Time ≥98%")
+            st.metric("Excellent %", f"{spo2['excellent_pct']}%",
+                     help="Time at Excellent Levels (≥98%): Percentage of time with optimal blood oxygen saturation. Higher percentages indicate better respiratory function and oxygen delivery. Target: >80% of time at excellent levels for optimal health.")
 
         # SpO2 Distribution
         col1, col2 = st.columns([2, 1])
@@ -589,15 +605,25 @@ with tabs[1]:
         st.subheader("Hourly Strain Breakdown")
 
         hourly_df = m["hourly_strain"].reset_index()
+        hourly_df.columns = ['timestamp', 'strain']
+
+        # Format hours as readable time (12 AM, 1 PM, etc.)
+        hourly_df['hour_label'] = hourly_df['timestamp'].dt.strftime('%I %p').str.lstrip('0')
 
         fig = go.Figure(data=[
-            go.Bar(x=hourly_df['hour'], y=hourly_df['strain'], marker_color='cyan')
+            go.Bar(
+                x=hourly_df['hour_label'],
+                y=hourly_df['strain'],
+                marker_color='cyan',
+                hovertemplate='<b>%{x}</b><br>Strain: %{y:.2f}<extra></extra>'
+            )
         ])
         fig.update_layout(
             title="Strain by Hour of Day",
             xaxis_title="Hour",
             yaxis_title="Strain",
-            height=400
+            height=400,
+            xaxis={'categoryorder': 'array', 'categoryarray': hourly_df['hour_label'].tolist()}
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1386,7 +1412,8 @@ with tabs[7]:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.metric("BMI", f"{bmi:.1f}", delta=bmi_category)
+            st.metric("BMI", f"{bmi:.1f}", delta=bmi_category,
+                     help="Body Mass Index: Weight-to-height ratio calculated as weight_kg / (height_m)². Categories: Underweight (<18.5), Normal (18.5-24.9), Overweight (25-29.9), Obese (≥30). Note: BMI doesn't account for muscle mass, bone density, or body composition. Athletes with high muscle mass may have elevated BMI despite being healthy.")
 
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
@@ -1407,13 +1434,15 @@ with tabs[7]:
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            st.metric("BMR", f"{int(bmr)} cal/day", help="Calories at complete rest")
+            st.metric("BMR", f"{int(bmr)} cal/day",
+                     help="Basal Metabolic Rate: Calories burned at complete rest using Mifflin-St Jeor equation. For males: (10×weight_kg) + (6.25×height_cm) - (5×age) + 5. For females: same - 161. This is your baseline energy expenditure for vital functions (breathing, circulation, cell production). Accounts for ~60-70% of total daily calories.")
             st.write("")
             st.caption(f"Weight: **{profile['weight_kg']:.1f} kg** / **{kg_to_lbs(profile['weight_kg']):.1f} lbs**")
             st.caption(f"Height: **{profile['height_cm']:.1f} cm** / **{cm_to_inches(profile['height_cm']):.1f} in**")
 
         with col3:
-            st.metric("TDEE", f"{int(tdee)} cal/day", help="Total daily calories burned")
+            st.metric("TDEE", f"{int(tdee)} cal/day",
+                     help="Total Daily Energy Expenditure: Total calories burned per day = BMR × activity factor. Activity factor calculated from daily steps or weekly exercise minutes: Sedentary (<3000 steps): 1.2×BMR, Lightly Active (3000-5000): 1.375×BMR, Moderately Active (5000-7500): 1.55×BMR, Very Active (7500-10000): 1.725×BMR, Extremely Active (>10000): 1.9×BMR. This is your maintenance calorie level.")
             st.write("")
             st.success("**Total Daily Energy Expenditure** including all activity")
 
