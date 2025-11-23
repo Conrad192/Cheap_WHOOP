@@ -295,46 +295,68 @@ with st.sidebar:
         else:
             st.info("👉 No device paired yet")
 
-            if st.button("🔍 Scan for Mi Band"):
-                with st.spinner("Scanning for nearby Mi Band devices... (10s)"):
-                    try:
-                        # Run async scan
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
+            # Check if we have scanned devices in session state
+            if 'bt_devices' in st.session_state and st.session_state.bt_devices:
+                # Show found devices
+                st.success(f"✅ Found {len(st.session_state.bt_devices)} device(s)!")
+                st.write("**Select your Mi Band:**")
 
-                        mb = MiBandBluetooth()
-                        devices = loop.run_until_complete(mb.scan_devices(timeout=10))
-                        loop.close()
+                for i, device in enumerate(st.session_state.bt_devices):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"📱 **{device['name']}**")
+                        st.caption(f"Address: {device['address']}")
+                    with col2:
+                        if st.button("Connect", key=f"connect_device_{i}"):
+                            with st.spinner(f"Connecting to {device['name']}..."):
+                                try:
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    success = loop.run_until_complete(quick_sync(device['address'], duration=20))
+                                    loop.close()
 
-                        if devices:
-                            st.success(f"Found {len(devices)} device(s)!")
+                                    if success:
+                                        merge_data()
+                                        st.success("✅ Connected and synced!")
+                                        # Clear device list
+                                        del st.session_state.bt_devices
+                                        st.rerun()
+                                    else:
+                                        st.error("Connection failed. Try again.")
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
 
-                            # Store in session state
-                            st.session_state.bt_devices = devices
+                st.divider()
+                if st.button("🔄 Scan Again"):
+                    del st.session_state.bt_devices
+                    st.rerun()
 
-                            # Show devices
-                            for i, device in enumerate(devices):
-                                if st.button(f"Connect to {device['name']}", key=f"bt_device_{i}"):
-                                    with st.spinner(f"Connecting to {device['name']}..."):
-                                        try:
-                                            loop = asyncio.new_event_loop()
-                                            asyncio.set_event_loop(loop)
-                                            success = loop.run_until_complete(quick_sync(device['address'], duration=20))
-                                            loop.close()
+            else:
+                # No devices scanned yet - show scan button
+                if st.button("🔍 Scan for Mi Band", use_container_width=True):
+                    with st.spinner("Scanning for nearby Mi Band devices... (10s)"):
+                        try:
+                            # Run async scan
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
 
-                                            if success:
-                                                merge_data()
-                                                st.success("✅ Connected and synced!")
-                                                st.rerun()
-                                            else:
-                                                st.error("Connection failed")
-                                        except Exception as e:
-                                            st.error(f"Error: {e}")
-                        else:
-                            st.warning("No Mi Band devices found nearby")
-                            st.caption("Make sure your watch is nearby and Bluetooth is enabled")
-                    except Exception as e:
-                        st.error(f"Scan failed: {e}")
+                            mb = MiBandBluetooth()
+                            devices = loop.run_until_complete(mb.scan_devices(timeout=10))
+                            loop.close()
+
+                            if devices:
+                                # Store in session state
+                                st.session_state.bt_devices = devices
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ No Mi Band devices found nearby")
+                                st.caption("**Troubleshooting:**")
+                                st.caption("• Make sure your watch is nearby (within 10 feet)")
+                                st.caption("• Close Mi Fit/Zepp app on your phone")
+                                st.caption("• Enable Bluetooth on your computer")
+                        except Exception as e:
+                            st.error(f"❌ Scan failed: {e}")
+                            st.caption("Make sure Bluetooth is enabled on your computer")
 
     # Zepp API Login
     elif st.session_state.data_source == "zepp":
