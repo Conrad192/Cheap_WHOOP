@@ -2,9 +2,41 @@
 
 You can now pull **real data** from your Xiaomi Mi Band or Amazfit watch!
 
-## Option 1: Zepp API (Automatic) ⚡ - **RECOMMENDED**
+## Option 1: Bluetooth (Direct Sync) 📡 - **RECOMMENDED**
 
-This is the easiest method - just login once and sync anytime.
+**The most automated and private method!**
+
+No internet, no passwords - just have your watch nearby.
+
+### Steps:
+
+1. **Start the app:**
+   ```bash
+   streamlit run app.py
+   ```
+
+2. **In Settings sidebar:**
+   - Select **"Bluetooth (Auto-Sync)"**
+   - Click **"🔍 Scan for Mi Band"**
+   - Click your device when it appears
+   - Done! It syncs automatically now.
+
+3. **Daily use:**
+   - Just click **"Sync Now"** or **"Refresh Data"**
+   - Your watch connects automatically when nearby
+
+### Requirements:
+- Bluetooth enabled on your computer
+- Mi Band within 10 feet
+- Mi Fit/Zepp app closed (not connected to phone)
+
+**📖 Full guide:** See [BLUETOOTH_SETUP.md](BLUETOOTH_SETUP.md)
+
+---
+
+## Option 2: Zepp API (Cloud Sync) ⚡
+
+Login once and sync from anywhere with internet.
 
 ### Steps:
 
@@ -29,7 +61,7 @@ This is the easiest method - just login once and sync anytime.
 
 ---
 
-## Option 2: Manual Upload (Privacy-First) 📁
+## Option 3: Manual Upload (Privacy-First) 📁
 
 If you prefer not to enter credentials, you can export and upload files.
 
@@ -82,15 +114,16 @@ All the same metrics you see in the Zepp/Mi Fit app!
 
 ## Which Method Should I Use?
 
-| Feature | Zepp API | Manual Upload |
-|---------|----------|---------------|
-| Ease of use | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-| Privacy | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| Automation | Yes | No |
-| Offline | No | Yes |
-| Setup time | 30 seconds | 2-3 minutes |
+| Feature | Bluetooth | Zepp API | Manual Upload |
+|---------|-----------|----------|---------------|
+| Ease of use | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Privacy | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Automation | Yes | Yes | No |
+| Offline | Yes | No | Yes |
+| Setup time | 20 seconds | 30 seconds | 2-3 minutes |
+| Historical data | No | Yes | Yes |
 
-**Recommendation:** Start with Zepp API for convenience. Switch to Manual Upload if you have privacy concerns.
+**Recommendation:** Use **Bluetooth** for daily syncing (easiest!). Use **Zepp API** or **Manual Upload** for initial setup to get historical data.
 
 ---
 

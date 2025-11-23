@@ -1,0 +1,21 @@
+# Cheap WHOOP - Dependencies
+
+# Core app
+streamlit>=1.28.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+plotly>=5.17.0
+altair>=5.0.0
+
+# Date/time
+python-dateutil>=2.8.2
+
+# Bluetooth integration
+bleak>=0.21.0
+
+# HTTP requests (for Zepp API)
+requests>=2.31.0

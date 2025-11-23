@@ -16,9 +16,11 @@ from pull_xiaomi import generate_xiaomi_data
 from pull_coospo import generate_coospo_data
 from pull_zepp import ZeppAPI, pull_zepp_data
 from import_manual import import_and_save
+from pull_bluetooth import MiBandBluetooth, quick_sync
 from merge import merge_data
 import json
 import io
+import asyncio
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -238,6 +240,7 @@ with st.sidebar:
         st.session_state.data_source = "mock"
 
     data_source_options = {
+        "Bluetooth (Auto-Sync)": "bluetooth",
         "Mock Data (Demo)": "mock",
         "Zepp/Mi Fit API": "zepp",
         "Manual Upload": "upload"
@@ -251,8 +254,90 @@ with st.sidebar:
 
     st.session_state.data_source = data_source_options[selected_source]
 
+    # Bluetooth Connection
+    if st.session_state.data_source == "bluetooth":
+        st.write("**Bluetooth Mi Band Connection:**")
+        st.caption("📡 Syncs directly from your watch when nearby")
+
+        # Check if device is cached
+        if os.path.exists("data/bluetooth_devices.json"):
+            try:
+                with open("data/bluetooth_devices.json") as f:
+                    device_info = json.load(f)
+                    st.success(f"✅ Paired: {device_info.get('name', 'Mi Band')}")
+                    st.caption(f"Last sync: {device_info.get('last_sync', 'Never')[:16]}")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Forget Device"):
+                            os.remove("data/bluetooth_devices.json")
+                            st.rerun()
+                    with col2:
+                        if st.button("Sync Now"):
+                            with st.spinner("Connecting to your Mi Band..."):
+                                try:
+                                    # Run async sync
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    success = loop.run_until_complete(quick_sync(duration=20))
+                                    loop.close()
+
+                                    if success:
+                                        merge_data()
+                                        st.success("✅ Data synced!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Sync failed. Make sure watch is nearby.")
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+            except:
+                pass
+        else:
+            st.info("👉 No device paired yet")
+
+            if st.button("🔍 Scan for Mi Band"):
+                with st.spinner("Scanning for nearby Mi Band devices... (10s)"):
+                    try:
+                        # Run async scan
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+
+                        mb = MiBandBluetooth()
+                        devices = loop.run_until_complete(mb.scan_devices(timeout=10))
+                        loop.close()
+
+                        if devices:
+                            st.success(f"Found {len(devices)} device(s)!")
+
+                            # Store in session state
+                            st.session_state.bt_devices = devices
+
+                            # Show devices
+                            for i, device in enumerate(devices):
+                                if st.button(f"Connect to {device['name']}", key=f"bt_device_{i}"):
+                                    with st.spinner(f"Connecting to {device['name']}..."):
+                                        try:
+                                            loop = asyncio.new_event_loop()
+                                            asyncio.set_event_loop(loop)
+                                            success = loop.run_until_complete(quick_sync(device['address'], duration=20))
+                                            loop.close()
+
+                                            if success:
+                                                merge_data()
+                                                st.success("✅ Connected and synced!")
+                                                st.rerun()
+                                            else:
+                                                st.error("Connection failed")
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+                        else:
+                            st.warning("No Mi Band devices found nearby")
+                            st.caption("Make sure your watch is nearby and Bluetooth is enabled")
+                    except Exception as e:
+                        st.error(f"Scan failed: {e}")
+
     # Zepp API Login
-    if st.session_state.data_source == "zepp":
+    elif st.session_state.data_source == "zepp":
         st.write("**Zepp/Mi Fit Login:**")
 
         # Check if already authenticated
@@ -375,7 +460,22 @@ with tabs[0]:
         if st.button("Refresh Data", use_container_width=True):
             with st.spinner("Refreshing..."):
                 # Use selected data source
-                if st.session_state.data_source == "zepp":
+                if st.session_state.data_source == "bluetooth":
+                    # Pull from Bluetooth
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        success = loop.run_until_complete(quick_sync(duration=20))
+                        loop.close()
+
+                        if success:
+                            st.success("Data synced from Mi Band!")
+                        else:
+                            st.error("Bluetooth sync failed. Check Settings to pair device.")
+                    except Exception as e:
+                        st.error(f"Bluetooth error: {e}")
+
+                elif st.session_state.data_source == "zepp":
                     # Pull from Zepp API
                     zepp_api = ZeppAPI()
                     if zepp_api.is_authenticated():
